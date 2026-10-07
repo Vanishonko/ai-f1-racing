@@ -70,13 +70,13 @@ resetToStart();
 // ---------------------------------------------------------------------------
 // Input
 // ---------------------------------------------------------------------------
-globalThis.addEventListener("keydown", (event) => {
+window.addEventListener("keydown", (event: KeyboardEvent) => {
   held.add(event.key.toLowerCase());
   if (event.key === " ") event.preventDefault();
   if (event.key.toLowerCase() === "r") resetToStart();
 });
-globalThis.addEventListener("keyup", (event) => held.delete(event.key.toLowerCase()));
-globalThis.addEventListener("blur", () => held.clear());
+window.addEventListener("keyup", (event: KeyboardEvent) => held.delete(event.key.toLowerCase()));
+window.addEventListener("blur", () => held.clear());
 
 const readInputs = (): void => {
   const wantsThrottle = held.has("w") || held.has("arrowup");
@@ -226,7 +226,7 @@ const drawTrail = (): void => {
 
 const drawWheelForces = (): void => {
   const scale = camera.scale * 0.02;
-  const offsets = [
+  const offsets: Array<[number, number]> = [
     [params.cgToFront, params.trackFront / 2],
     [params.cgToFront, -params.trackFront / 2],
     [-params.cgToRear, params.trackRear / 2],
@@ -362,12 +362,12 @@ const updatePanel = (): void => {
 // ---------------------------------------------------------------------------
 const resize = (): void => {
   const rect = canvas.parentElement!.getBoundingClientRect();
-  const dpr = Math.min(globalThis.devicePixelRatio || 1, 2);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
   canvas.width = Math.round(rect.width * dpr);
   canvas.height = Math.round(rect.height * dpr);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
 };
-globalThis.addEventListener("resize", resize);
+window.addEventListener("resize", resize);
 resize();
 
 let accumulator = 0;
