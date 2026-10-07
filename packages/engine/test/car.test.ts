@@ -44,6 +44,59 @@ const stopDistance = (
   return { distance: state.x - x0, seconds: ticks * DT };
 };
 
+test("car: steering convention is pinned, in both directions", () => {
+  /*
+   * Written AFTER measuring the running viewer, not from reasoning about signs.
+   *
+   * That order matters. Steering sign was got wrong here, then "fixed" into a
+   * different wrong state, and the whole time every force, moment and load
+   * transfer was perfectly self-consistent — the car turned, it just turned the
+   * direction nobody asked for. No assertion written from the same mental model
+   * that produced the bug could have caught it.
+   *
+   * THE MEASURED TRUTH, from driving the page: negative `steerCommand` turns the
+   * car right, positive turns it left. Both are asserted so a future sign flip
+   * fails loudly instead of quietly inverting the controls again.
+   */
+  const turn = (command: number, frames: number) => {
+    const state = carAtSpeed(25);
+    const heading0 = state.heading;
+    const y0 = state.y;
+    for (let i = 0; i < frames; i++) {
+      state.throttle = 0.4;
+      state.brake = 0;
+      state.steerCommand = command;
+      stepCar(state, PARAMS, DT);
+    }
+    return {
+      dHeading: state.heading - heading0,
+      dY: state.y - y0,
+      yawRate: state.yawRate,
+    };
+  };
+
+  const left = turn(1, 20);
+  const right = turn(-1, 20);
+  const straight = turn(0, 20);
+
+  // Positive command yaws the car toward +y, which in this frame is to its left.
+  assert.ok(left.dHeading > 0.1, `positive steer must turn left, dHeading ${left.dHeading}`);
+  assert.ok(left.dY > 0, `positive steer must move toward +y, dY ${left.dY}`);
+
+  assert.ok(right.dHeading < -0.1, `negative steer must turn right, dHeading ${right.dHeading}`);
+  assert.ok(right.dY < 0, `negative steer must move toward -y, dY ${right.dY}`);
+
+  // Zero input goes straight, which catches a sign error that cancels out.
+  assert.ok(Math.abs(straight.dHeading) < 1e-9, "no steering must not yaw");
+  assert.ok(Math.abs(straight.dY) < 1e-9, "no steering must not drift");
+
+  // The two directions must be symmetric, so no asymmetry is hiding in the model.
+  assert.ok(
+    Math.abs(Math.abs(left.dHeading) - Math.abs(right.dHeading)) < 1e-6,
+    `steering must be symmetric: ${left.dHeading} vs ${right.dHeading}`,
+  );
+});
+
 test("car: a full-throttle launch moves the car and stays straight", () => {
   const state = createCarState(0, 0, 0);
   for (let i = 0; i < 60 * 10; i++) {
@@ -357,4 +410,54 @@ test("car: a standing start is smooth — no gear hunting, no runaway wheelspin"
   // A twelve second launch should not need many shifts, and must never thrash.
   assert.ok(shifts <= 8, `too many gear changes in a launch: ${shifts}`);
   assert.ok(speeds[speeds.length - 1]! > 35, `should be quick after 12 s, got ${speeds[speeds.length - 1]!.toFixed(1)} m/s`);
+});
+
+test("car: throttle is an analog control with a non-trivial optimum", () => {
+  /*
+   * The property that makes "learn to launch the car" a real objective rather
+   * than a figure of speech. If full throttle were always best, a policy would
+   * have nothing to discover and every start would be decided by grip alone.
+   *
+   * It is not, and the reason is the tire model: a spinning wheel is past its slip
+   * peak, where the fold-back means MORE slip produces LESS forward force. So the
+   * fastest launch is a partial throttle, and partly because the car reaches the
+   * limiter and shifts up instead of putting its torque into the tires.
+   */
+  const timeTo100m = (throttleScale: number): { time: number; wheelspin: number } => {
+    const state = carAtSpeed(0);
+    const context: StepContext = { ...CLEAN_AIR, throttleScale };
+    for (let tick = 0; tick < 60 * 20; tick++) {
+      state.throttle = 1;
+      state.brake = 0;
+      stepCar(state, PARAMS, DT, context);
+      if (state.x >= 100) return { time: tick * DT, wheelspin: state.wheelspinTime };
+    }
+    return { time: Infinity, wheelspin: state.wheelspinTime };
+  };
+
+  const full = timeTo100m(1.0);
+  const part = timeTo100m(0.7);
+  const gentle = timeTo100m(0.4);
+
+  assert.ok(Number.isFinite(full.time), "full throttle must reach 100 m");
+  assert.ok(Number.isFinite(part.time), "70% throttle must reach 100 m");
+
+  // Too little power is clearly worse.
+  assert.ok(
+    gentle.time > full.time * 1.2,
+    `gentle throttle must be much slower: ${gentle.time.toFixed(2)} s vs ${full.time.toFixed(2)} s`,
+  );
+
+  // And full throttle must NOT be optimal, or there is nothing to learn.
+  assert.ok(
+    part.time < full.time,
+    `a partial throttle must beat full throttle off the line: ${part.time.toFixed(3)} s at 70% ` +
+      `vs ${full.time.toFixed(3)} s at 100%`,
+  );
+
+  // Full throttle should also abuse the tires more, which is the longer-term cost.
+  assert.ok(
+    full.wheelspin > part.wheelspin,
+    `full throttle must spin the wheels more: ${full.wheelspin.toFixed(2)} s vs ${part.wheelspin.toFixed(2)} s`,
+  );
 });

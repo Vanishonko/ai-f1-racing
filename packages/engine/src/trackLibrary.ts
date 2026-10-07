@@ -13,6 +13,11 @@
  *  - `hairpin`: a long straight into a first-gear hairpin. Tests braking
  *    discipline: arrive too hot or lock the fronts and the car runs wide with no
  *    steering, which is the failure the tire model was built to produce.
+ *    KNOWN FLAW: its outbound leg dips back through the return leg, so the
+ *    centreline crosses itself three times near s = 660 m. That makes the `(s, d)`
+ *    projection ambiguous at the crossing only; everywhere else it is exact. Every
+ *    attempt to open the circuit up produced a worse track, so the flaw is
+ *    documented rather than fixed. See the test file for the bounds.
  *  - `chicane`: direction changes under load. Tests whether the driver can
  *    release the brake and let the car settle before turning in.
  *  - `club`: a full circuit with a bit of everything, including a long run to
@@ -126,6 +131,15 @@ export const CHICANE: TrackControlPoints = {
 
 /**
  * A club circuit with a bit of everything, including a long run to the line.
+ *
+ * The complex around [270, 25] -> [210, 35] -> [160, 10] -> [140, -45] is the
+ * signature of the lap: a right-left flick onto the long run down the left side,
+ * and the return straight is the last thing before the line. The waypoints there
+ * are deliberately close together, because bunched control points sharpen the
+ * spline radius, and that is what gives the corner its character.
+ *
+ * TREAT THIS BLOCK AS CONTENT, NOT SCAFFOLDING. Attempts to "tidy" it produced a
+ * circuit that was straighter, slower and considerably less interesting.
  *
  * The last two waypoints open onto a long straight that starts almost at the
  * start/finish line. That is deliberate: it means a mistake in the final complex

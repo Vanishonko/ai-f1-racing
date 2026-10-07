@@ -24,8 +24,17 @@ circuit in the browser at `pnpm drive`.
 | ES trainer, islands, checkpoints | Not started |
 | Live streaming, gallery, ratings | Not started |
 
-Tests: **22 passing, 0 failing** (`pnpm test`).
+Tests: **29 passing, 0 failing** (`pnpm test`).
 Determinism lint: **clean**. Typecheck: **clean**.
+
+Known flaws, recorded rather than hidden:
+- The Hairpin's centreline crosses itself three times near s = 660 m, making the
+  track projection ambiguous there. Fixing it properly means redesigning the
+  circuit; every attempted quick fix produced a worse one.
+- Full-throttle wheelspin costs less than it should, because the tire model has no
+  thermal limit and the rev limiter caps wheel speed. `throttleScale` now exists so
+  the trainer can discover modulation anyway, and the launch sweep shows a real
+  optimum at about 70% throttle.
 
 | Piece | State |
 |---|---|
@@ -202,6 +211,72 @@ that worked came from printing the actual state — wheel speeds, forces, loads 
 and reading it. The brake-bias and lockup-order questions in particular were
 answered in seconds by a table of numbers after a long stretch of unproductive
 deduction.
+
+
+### Steering, tracks, and analog throttle
+
+**Three corrections from driving the thing, and one of mine that was wrong.**
+
+**1. Steering was inverted, and I made it worse before fixing it.** Measured in
+the running page: `steerCommand = -1` produced `dHeading -24.6°`, and a negative
+canvas rotation is clockwise, which is a right turn. The sign convention was the
+bug. I then "fixed" it by negating the wheel rotation in the engine and inverting
+the key mapping — and broke the thing I was trying to repair, because the mapping
+had been right all along. Reverted both, then measured the keys themselves
+(`A` -> `dHeading +21.1°` = left, `D` -> `-57.0°` = right) to confirm.
+
+The lesson is worth keeping: **every force, moment and load transfer in the car
+was self-consistent while it turned the wrong way.** No test written from the same
+mental model that produced a sign error can catch that sign error. It took driving
+it. There is now a test pinning BOTH directions plus the zero case, so the next
+inversion fails loudly.
+
+Also fixed the steering indicator bar, which filled the wrong way for the same
+reason.
+
+**2. The club circuit was the good one and I destroyed it.** Chasing a "final turn
+that overlaps itself", I rebuilt every layout into something straighter and much
+duller. The original Club Circuit was then measured and does NOT cross itself —
+the overlap is a visual pinch in the right-left flick at [270,25] -> [140,-45],
+which is exactly the part that gives the lap its character. Restored, and the
+library now says in plain text that the block is content rather than scaffolding.
+
+**The Hairpin is the one that genuinely self-crosses** (three times near
+s = 660 m), and I failed to fix it cleanly: every attempt to open it up produced a
+worse circuit and two of them added more crossings than they removed. So it is
+documented rather than fixed — the ambiguity is confined to the crossing, which a
+test now asserts, and everywhere else projection is exact to a fraction of a
+millimetre. Redesigning that circuit is a content decision, not a tuning one.
+
+Added `selfIntersections` to the engine and wired it into `validateTrack`, because
+a crossing makes the `(s, d)` projection ambiguous and quietly breaks progress and
+lap counting. The detector is itself guarded by a test that feeds it a bowtie that
+genuinely crosses, since a detector that never fires would pass everything.
+
+**3. Launching and throttle modulation is now a real objective.** Added
+`throttleScale` to the step context so a policy can feather the power, matching
+what `brakeScale` already allowed for the brakes. It is not cosmetic:
+
+```
+throttle  time to 100 m   wheelspin
+    0.60       5.650 s      0.00 s
+    0.70       5.317 s      0.38 s   <- best
+    1.00       5.533 s      6.96 s   <- 4.1% slower, and a destroyed set of tires
+```
+
+Full throttle is not optimal, because a spinning wheel is past its slip peak and
+the fold-back means more slip makes less forward force. A test asserts that a
+partial throttle beats full, that too little is clearly worse, and that full
+throttle abuses the tires more — so "learn to launch the car" is verifiable rather
+than aspirational.
+
+**Process note, the real lesson of this stretch:** I have now got a sign or a
+shape wrong by reasoning about it four separate times, and each time the fix that
+worked came from measuring — reading the heading out of a live page, printing the
+generated points, or sweeping a parameter. Two of my four "fixes" made things
+worse. The tests are better for it, but the pattern is consistent enough to name:
+when the code is self-consistent and the behaviour is wrong, stop reasoning and go
+read the numbers.
 
 ## Next
 

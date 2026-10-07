@@ -344,6 +344,21 @@ export interface StepContext {
    * handed to the population as an assumption baked into the brake pedal.
    */
   brakeScale: number;
+  /**
+   * Per-tick throttle scale, 0..1, multiplying the driver's throttle demand.
+   *
+   * Exists so a driver can feather the power rather than only asking for all of it
+   * or none. A standing start is the clearest case: full throttle in first gear
+   * spins the rear wheels at three times road speed, and the tire model's fold-back
+   * means a spinning wheel makes LESS forward force than one just past its slip
+   * peak. The fastest launch is therefore not full throttle, and a policy needs a
+   * way to express a partial one to discover that.
+   *
+   * It also gives the trainer somewhere to put traction control, engine-braking
+   * balance on corner entry, and lift-and-coast, without those becoming hardcoded
+   * in the physics.
+   */
+  throttleScale: number;
 }
 
 export const CLEAN_AIR: StepContext = {
@@ -351,6 +366,7 @@ export const CLEAN_AIR: StepContext = {
   gripNoise: 1,
   dirtyAir: 0,
   brakeScale: 1,
+  throttleScale: 1,
 };
 
 const STEER_RATE = 6.0; // rad/s, roughly a fast hand movement
@@ -443,8 +459,9 @@ export const stepCar = (
   }
 
   // No drive torque while the gear is changing.
+  const throttleDemand = clamp(state.throttle, 0, 1) * clamp(context.throttleScale, 0, 1);
   const engineOut =
-    engineTorque(state.rpm, state.throttle, params.engine) * (state.shiftTimer > 0 ? 0 : 1);
+    engineTorque(state.rpm, throttleDemand, params.engine) * (state.shiftTimer > 0 ? 0 : 1);
 
   // --- steering actuator, rate limited so full lock takes time to apply ---
   const steerTarget = clamp(state.steerCommand, -1, 1) * MAX_STEER_ANGLE;

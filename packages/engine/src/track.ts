@@ -357,12 +357,77 @@ export const minimumCornerRadius = (track: Track): number => {
   return peak > 1e-9 ? 1 / peak : Infinity;
 };
 
-/** Clamps a control-polygon-based spec so a generated track cannot be degenerate. */
+/**
+ * Counts places where the centreline crosses itself.
+ *
+ * A track that crosses itself is not merely ugly: the car's `(s, d)` projection
+ * becomes ambiguous at the crossing, so two different points on the surface claim
+ * the same track position and the drivers' progress, lap counting and grid
+ * placement all quietly break.
+ *
+ * This is easy to produce by accident. A hairpin whose two legs are closer
+ * together than twice the turn radius folds back through itself, and a rounded
+ * rectangle whose corner arcs are not tangent to the adjoining edges cuts straight
+ * across the middle of the circuit. Both happened while building this library, and
+ * both looked entirely plausible as a list of points.
+ *
+ * Segments closer than `minGap` samples apart along the loop are skipped, since
+ * adjacent segments always share an endpoint and would otherwise count.
+ */
+export const selfIntersections = (track: Track, minGapMeters = 12): Array<[number, number]> => {
+  const count = track.xs.length;
+  const step = Math.max(1, Math.round(minGapMeters / track.spacing));
+  const samples: number[] = [];
+  for (let i = 0; i < count; i += step) samples.push(i);
+
+  const segmentsCross = (
+    ax: number, ay: number, bx: number, by: number,
+    cx: number, cy: number, dx: number, dy: number,
+  ): boolean => {
+    const r1 = bx - ax, r2 = by - ay;
+    const s1 = dx - cx, s2 = dy - cy;
+    const denominator = r1 * s2 - r2 * s1;
+    if (denominator > -1e-12 && denominator < 1e-12) return false;
+    const u = ((cx - ax) * s2 - (cy - ay) * s1) / denominator;
+    const v = ((cx - ax) * r2 - (cy - ay) * r1) / denominator;
+    // Strictly interior, so segments meeting end to end are not reported.
+    return u > 1e-9 && u < 1 - 1e-9 && v > 1e-9 && v < 1 - 1e-9;
+  };
+
+  const found: Array<[number, number]> = [];
+  for (let a = 0; a < samples.length; a++) {
+    for (let b = a + 1; b < samples.length; b++) {
+      const i = samples[a]!;
+      const j = samples[b]!;
+      const gap = Math.min(Math.abs(i - j), count - Math.abs(i - j));
+      if (gap < step * 3) continue;
+      const i2 = (i + step) % count;
+      const j2 = (j + step) % count;
+      if (
+        segmentsCross(
+          track.xs[i]!, track.ys[i]!, track.xs[i2]!, track.ys[i2]!,
+          track.xs[j]!, track.ys[j]!, track.xs[j2]!, track.ys[j2]!,
+        )
+      ) {
+        found.push([track.s[i]!, track.s[j]!]);
+      }
+    }
+  }
+  return found;
+};
+
+/** Checks a track for the failures that make it undrivable or ambiguous. */
 export const validateTrack = (track: Track): string | null => {
   if (track.length < 200) return `track is too short (${track.length.toFixed(0)} m)`;
   const radius = minimumCornerRadius(track);
   if (radius < track.halfWidth * 1.2) {
     return `tightest corner radius ${radius.toFixed(1)} m is under 1.2x half width`;
+  }
+  const crossings = selfIntersections(track);
+  if (crossings.length > 0) {
+    const [a, b] = crossings[0]!;
+    return `centreline crosses itself (${crossings.length} time(s)), first near ` +
+      `s=${a.toFixed(0)} m and s=${b.toFixed(0)} m`;
   }
   for (let i = 0; i < track.xs.length; i++) {
     if (!Number.isFinite(track.xs[i]!) || !Number.isFinite(track.ys[i]!)) {

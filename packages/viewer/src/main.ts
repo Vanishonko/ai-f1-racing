@@ -13,6 +13,7 @@
  */
 
 import {
+  CLEAN_AIR,
   createCarState,
   DEFAULT_CAR_PARAMS,
   stepCar,
@@ -33,7 +34,7 @@ const ctx = canvas.getContext("2d")!;
 const track: Track = buildHandTrack("club")!;
 const car: CarState = createCarState();
 const params = DEFAULT_CAR_PARAMS;
-const stepContext: StepContext = { surfaceGrip: 1, gripNoise: 1, dirtyAir: 0, brakeScale: 1 };
+const stepContext: StepContext = { ...CLEAN_AIR };
 
 const DT = 1 / 60;
 const TRAIL_LENGTH = 220;
@@ -92,7 +93,17 @@ const readInputs = (): void => {
   car.throttle = clamp01(car.throttle + (wantsThrottle ? pedalRate : -pedalRate * 1.6));
   car.brake = clamp01(car.brake + (wantsBrake ? pedalRate * 1.3 : -pedalRate * 2.0));
 
-  const targetSteer = wantsLeft ? -1 : wantsRight ? 1 : 0;
+  /*
+   * `steerCommand = -1` turns the car RIGHT and `+1` turns it LEFT. That is the
+   * opposite of what the sign looks like it should mean, and it is worth stating
+   * plainly because it was got wrong twice.
+   *
+   * The engine's convention was verified by driving the page and reading the
+   * heading: a negative command produces a NEGATIVE heading change, and a negative
+   * canvas rotation is clockwise, which on screen is a right turn. The engine test
+   * pins the same mapping from the physics side.
+   */
+  const targetSteer = wantsLeft ? 1 : wantsRight ? -1 : 0;
   const delta = targetSteer - car.steerCommand;
   car.steerCommand += Math.abs(delta) < steerRate ? delta : Math.sign(delta) * steerRate;
 
@@ -295,6 +306,8 @@ const drawCar = (): void => {
   for (const [forward, lateral, steers] of corners) {
     ctx.save();
     ctx.translate(forward * camera.scale, -lateral * camera.scale);
+    // Screen Y is flipped relative to the world's, so a wheel turned by
+    // +steerAngle in the car's frame draws at -steerAngle here.
     if (steers) ctx.rotate(-car.steerAngle);
     ctx.fillRect(-wheelLength / 2, -wheelWidth / 2, wheelLength, wheelWidth);
     ctx.restore();
@@ -325,7 +338,9 @@ const updatePanel = (): void => {
   text("str-val", car.steerAngle.toFixed(2));
   bar("thr", car.throttle);
   bar("brk", car.brake);
-  bar("str", (car.steerAngle / 0.55 + 1) / 2);
+  // The bar fills rightward for a RIGHT turn, and the indicator is inverted
+  // because a positive steering angle is a left turn.
+  bar("str", (-car.steerAngle / 0.55 + 1) / 2);
 
   const frontLoad = car.normalLoad[WHEEL_FL]! + car.normalLoad[WHEEL_FR]!;
   const rearLoad = car.normalLoad[WHEEL_RL]! + car.normalLoad[WHEEL_RR]!;
@@ -369,6 +384,17 @@ const resize = (): void => {
 };
 window.addEventListener("resize", resize);
 resize();
+
+/**
+ * The live sim state, exposed for measurement.
+ *
+ * This is not just a convenience: steering direction is the one property that no
+ * engine test can check, because every force, moment and load transfer can be
+ * self-consistent while the car turns the wrong way. Being able to read the
+ * actual heading and position out of a running page is how the convention gets
+ * verified end to end.
+ */
+(window as unknown as { sim: unknown }).sim = { car, track, params, stepContext, resetToStart, held };
 
 let accumulator = 0;
 let lastTime = performance.now();
