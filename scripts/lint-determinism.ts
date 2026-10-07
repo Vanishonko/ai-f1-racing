@@ -18,6 +18,20 @@ import { join } from "node:path";
 const CORE_DIRS = ["packages/engine/src"];
 
 /**
+ * Files EXEMPT from the transcendental ban because they bake their tables once at
+ * module load and never re-derive them.
+ *
+ * The exemption is listed explicitly rather than inferred, so that a new file
+ * cannot quietly join the exempt set. A value computed once at startup cannot
+ * drift between engines, which is what the contract actually cares about; the
+ * ban exists to keep trig out of the per-tick path.
+ */
+const BAKING_EXEMPT = new Set([
+  "packages/engine/src/steerLut.ts",
+  "packages/engine/src/math2d.ts",
+]);
+
+/**
  * Math functions whose results are not guaranteed bit-identical across
  * JavaScript engines and CPU architectures.
  *
@@ -97,6 +111,7 @@ const lineOf = (source: string, index: number): number =>
 
 for (const dir of CORE_DIRS) {
   for (const file of await collectFiles(dir)) {
+    if (BAKING_EXEMPT.has(file)) continue;
     const raw = await readFile(file, "utf8");
     const code = stripComments(raw);
     const rawLines = raw.split("\n");

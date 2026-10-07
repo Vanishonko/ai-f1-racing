@@ -9,7 +9,13 @@
   },
   "scripts": {
     "test": "node --test 'packages/**/test/*.test.ts'",
+    "typecheck": "tsc --noEmit",
+    "check": "pnpm run typecheck && pnpm run lint:determinism && pnpm test",
     "bench": "node packages/engine/test/bench.ts",
     "lint:determinism": "node scripts/lint-determinism.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "typescript": "^7.0.2"
   }
 }

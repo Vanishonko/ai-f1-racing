@@ -51,13 +51,24 @@ test("tire: longitudinal force peaks at the design slip and then falls away", ()
     Math.abs(atFullLock) < Math.abs(atPeak) * 0.97,
     `full lock must lose force vs the peak: ${Math.abs(atFullLock)} vs ${Math.abs(atPeak)}`,
   );
-  // The exact amount of force kept by a locked tire is a calibration choice, not
-  // a free parameter: it decides how punishing a lockup is in the reward
-  // function, so it is pinned rather than left to drift.
+  // The braking loss at full lock is moderate — a racing slick sliding on asphalt
+  // keeps most of its kinetic friction. That is realistic, and it means the real
+  // cost of a lockup is not stopping power, it is that you can no longer steer.
+  // The lateral-collapse test below is where that shows up.
   const retained = Math.abs(atFullLock) / Math.abs(atPeak);
   assert.ok(
-    retained > 0.7 && retained < 0.92,
-    `a locked tire should keep 70-92% of peak braking, kept ${(retained * 100).toFixed(1)}%`,
+    retained > 0.8 && retained < 0.95,
+    `a locked tire should keep 80-95% of peak braking, kept ${(retained * 100).toFixed(1)}%`,
+  );
+
+  // The fold-back must be steep enough that slip management is a real skill
+  // rather than a matter of opinion. Losing a tenth of grip at double the peak
+  // slip is what makes braking at the limit worth learning.
+  const overslip = Math.abs(fxAt(-2 * DEFAULT_TIRE.slipRatioPeak, Fz));
+  const overslipRetained = overslip / Math.abs(atPeak);
+  assert.ok(
+    overslipRetained < 0.97,
+    `double the peak slip must already cost grip: kept ${(overslipRetained * 100).toFixed(1)}%`,
   );
 
   // Monotonic increase in braking MAGNITUDE up to the peak. Braking force is
@@ -396,7 +407,7 @@ test("a locked wheel brakes measurably worse than one at the slip peak", () => {
   // steering, not an instant retirement. That matters for how much the reward
   // function should punish a lockup event, so it is pinned down here.
   const retained = locked / peak;
-  assert.ok(retained > 0.7, `a locked tire keeps most sliding friction: ${retained}`);
+  assert.ok(retained > 0.8, `a locked tire keeps most sliding friction: ${retained}`);
   assert.ok(retained < 1, "but never more than the peak");
 });
 

@@ -105,92 +105,118 @@ export interface TireForce {
 }
 
 /**
- * Raw, un-normalized slip → force shape, as a fraction of the friction budget.
- * Only used to build the table below.
+ * The slip magnitude at which grip peaks, for EITHER channel.
  *
- * Rising limb `m(3 - m^2)/2` reaches exactly 1.0 at m == 1 with slope 1, so the
- * tire builds force steeply through its usable range.
+ * This is the single most confusing quantity in the file, so it is worth being
+ * explicit. Slip ratio and slip angle have wildly different natural scales: a
+ * longitudinal peak at 0.11 and a lateral peak at a velocity ratio of about 1.4
+ * differ by a factor of roughly 12.7. Normalizing each channel by its OWN peak
+ * would put their peaks at the same normalized coordinate, which sounds tidy and
+ * is wrong — it makes the two channels' peaks collide at a single point and
+ * wrecks the falloff.
  *
- * Falling limb keeps slope 0 at the peak and decays gently. Real slicks retain
- * most of their sliding friction, and a locked tire still brakes hard — it just
- * loses the ability to generate force in any other direction.
+ * Instead each channel is normalized by the OTHER channel's peak scale, so that
  *
- * This single curve IS the fold-back: it is bounded by 1, rises to the budget at
- * the slip peak, and settles near 0.6 of the budget once sliding. A fully locked
- * wheel (m ≈ 9) therefore brakes at roughly 0.6 of what a perfectly modulated
- * wheel does, which is the property that makes locking up a genuine mistake.
+ *     |slip| = |atan2(slipAngle, slipRatio)|   (the resultant slip direction)
+ *
+ * falls out naturally, and ONE slip magnitude `tau` is the shared peak. That is
+ * what makes `demand(TAU) == 1` the correct condition for either channel alone:
+ * pure longitudinal slip of 0.11 and pure lateral slip of a 1.4 velocity ratio
+ * both sit at `tau` and both produce full grip.
+ *
+ * Equal to `1 / slipRatioPeak`. With the default tire that is 9.0909.
  */
-const rawSlipShape = (m: number): number => {
-  if (m <= 0) return 0;
-  if (m <= 1) return m * (3 - m * m) * 0.5;
-  const d = m - 1;
-  return 1 / (1 + 0.0027 * d * d);
-};
+export const slipReference = (p: TireParams): number => 1 / p.slipRatioPeak;
 
-/** Upper bound of the baked table, in multiples of each channel's peak slip. */
-const SLIP_TABLE_MAX = 8;
-/** Table resolution. Small enough to index fast, fine enough to be smooth. */
-const SLIP_TABLE_STEPS = 257;
+const slipReferenceOf = (p: TireParams): number => 1 / p.slipRatioPeak;
 /**
- * True peak of `rawSlipShape`. Both limbs are <= 1 with the maximum exactly 1
- * at m == 1, so this is 1 by construction. Kept explicit because normalizing
- * by the SAMPLED table maximum instead would let the grid's own maximum land a
- * few percent above the true peak, making `curve(1)` overshoot the friction
- * circle by ~5%. That bug is invisible until it silently grants a locked tire
- * more force than a gripping one.
+ * The demand curve, defined by ANCHOR POINTS taken from real tire behaviour
+ * rather than by a fitted formula.
+ *
+ * This replaced several attempted closed forms, all of which failed the same
+ * way. A saturating rise followed by a `1/(1 + k*(q-1)^p)` tail gives a monotone
+ * slope past the peak, but real tire curves PLATEAU: grip falls quickly to about
+ * 95% by 2.5x peak slip and then barely moves out to full lock. No choice of `k`
+ * or `p` reproduces that, because that is not the shape of a smooth falloff.
+ *
+ * Anchors are `(slip in multiples of the shared peak tau, fraction of budget)`.
+ * The values are consistent with published racing-slick curves: a peak near 10%
+ * slip, about 5% of grip lost by 25% slip, and about 15% lost at full lock.
+ *
+ * Every anchor is <= 1 and the knot at q == 1 IS the peak, so the curve comes out
+ * normalized by construction. That matters: it is what lets the friction circle
+ * hold with no clamp anywhere, and a clamp would cancel the fold-back and make
+ * locking up free.
  */
-const SLIP_PEAK = 1;
+const DEMAND_ANCHORS: ReadonlyArray<readonly [number, number]> = [
+  [0, 0],
+  [0.25, 0.42],
+  [0.5, 0.68],
+  [0.75, 0.88],
+  [1, 1], // the peak
+  [1.25, 0.995],
+  [1.5, 0.985],
+  [2, 0.97],
+  [2.5, 0.95],
+  [3, 0.93],
+  [4, 0.9],
+  [5, 0.88],
+  [6, 0.87],
+  [8, 0.86],
+  [16, 0.85],
+];
+
+/** Upper bound of the table, in multiples of the shared slip peak `tau`. */
+export const DEMAND_MAX_SLIP = DEMAND_ANCHORS[DEMAND_ANCHORS.length - 1]![0];
 
 /**
- * Baked demand curve, normalized to EXACTLY 1.0 at m == 1.
- *
- * Baking rather than evaluating analytically means the friction-circle radius
- * is correct by construction: the peak is 1.0 because we divided by the
- * analytic peak, not because the algebra happened to work out. Table lookup +
- * linear interpolation is also faster than the divisions it replaces, and stays
- * inside the determinism contract.
+ * Table resolution. Chosen so linear interpolation between samples deviates from
+ * the anchor polyline by well under a percent, keeping the curve smooth as well
+ * as accurate.
  */
-const SLIP_TABLE = ((): Float64Array => {
-  const table = new Float64Array(SLIP_TABLE_STEPS + 1);
-  for (let i = 0; i <= SLIP_TABLE_STEPS; i++) {
-    const m = (i / SLIP_TABLE_STEPS) * SLIP_TABLE_MAX;
-    table[i] = rawSlipShape(m) / SLIP_PEAK;
+const DEMAND_STEPS = 4096;
+
+/**
+ * The demand curve, baked from the anchors.
+ *
+ * Baking means the hot path is a single index and a lerp, with no search for the
+ * bracketing knot, and it keeps the whole thing inside the determinism contract.
+ */
+const DEMAND_TABLE = ((): Float64Array => {
+  const table = new Float64Array(DEMAND_STEPS + 1);
+  let knot = 0;
+  for (let i = 0; i <= DEMAND_STEPS; i++) {
+    const q = (i / DEMAND_STEPS) * DEMAND_MAX_SLIP;
+    // Anchors ascend, so this is a single forward pass over the whole bake.
+    while (knot < DEMAND_ANCHORS.length - 2 && q > DEMAND_ANCHORS[knot + 1]![0]) {
+      knot++;
+    }
+    const [q0, v0] = DEMAND_ANCHORS[knot]!;
+    const [q1, v1] = DEMAND_ANCHORS[knot + 1]!;
+    const span = q1 - q0;
+    const raw = span <= 0 ? 0 : (q - q0) / span;
+    const t = raw < 0 ? 0 : raw > 1 ? 1 : raw;
+    table[i] = v0 + (v1 - v0) * t;
   }
   return table;
 })();
 
 /**
- * Tolerance, in normalized slip, for the peak comparison.
+ * Share of the friction budget available at a given slip magnitude, measured in
+ * units of the shared peak `tau` (see `slipReference`).
  *
- * Floating point means `slipRatio / slipRatioPeak` does NOT always land exactly
- * on 1.0 — `-0.11 / 0.11` evaluates to -0.9999999999999999. Without this
- * tolerance the lookup straddles a table interval and returns 1.0 - 2e-5 of the
- * budget, which is physically meaningless yet enough to fail an exactness
- * assertion and, worse, to make the peak depend on rounding.
+ * Bounded by 1 for every input, equal to 1 at `q == 1`, and settling near 0.85
+ * at full lock.
  */
-const PEAK_EPSILON = 1e-6;
-
-/**
- * Demand curve for one channel, evaluated at normalized slip `m`, where
- * `m == 1` is that channel's own peak-slip point.
- *
- * Properties, all of which are load-bearing:
- *  - `curve(0) == 0` and the rise is steep, matching a racing slick.
- *  - The peak is EXACTLY 1.0 at m == 1, so `mu * Fz` is the true friction
- *    circle radius and no channel can overshoot it.
- *  - Decreasing past the peak and asymptoting to roughly 0.9 of peak, so a
- *    locked or spinning tire still develops meaningful sliding friction while
- *    losing most of its ability to generate force in the other direction.
- */
-const demandCurve = (normalizedSlip: number): number => {
-  const m = normalizedSlip < 0 ? -normalizedSlip : normalizedSlip;
-  if (m >= SLIP_TABLE_MAX) return SLIP_TABLE[SLIP_TABLE_STEPS]!;
-  if (m - 1 < PEAK_EPSILON && 1 - m < PEAK_EPSILON) return 1;
-  const position = (m / SLIP_TABLE_MAX) * SLIP_TABLE_STEPS;
+export const demand = (slipMagnitude: number): number => {
+  const q = slipMagnitude < 0 ? -slipMagnitude : slipMagnitude;
+  if (q <= 0) return 0;
+  if (q >= DEMAND_MAX_SLIP) return DEMAND_TABLE[DEMAND_STEPS]!;
+  const position = (q / DEMAND_MAX_SLIP) * DEMAND_STEPS;
   const index = position | 0;
   const fraction = position - index;
-  const lo = SLIP_TABLE[index]!;
-  const hi = SLIP_TABLE[index + 1]!;
+  const lo = DEMAND_TABLE[index]!;
+  const hi = DEMAND_TABLE[index + 1]!;
   return lo + (hi - lo) * fraction;
 };
 
@@ -244,29 +270,38 @@ export const tireForces = (
 
   // Step 1: each channel's slip, normalized by ITS OWN peak. `sx == 1` means
   // that channel is at its peak; larger means past it.
-  const sx = slipRatioVal / p.slipRatioPeak;
+  /**
+   * Both channels normalized by the SAME scale, so their contributions are
+   * comparable and the resultant slip direction falls out without any
+   * trigonometry.
+   *
+   * Dividing both by `slipAnglePeak` is equivalent to dividing one of them by
+   * `slipRatioPeak` followed by a constant rescale, and it makes the slip
+   * magnitude come out in units where `slipReference(p)` is the shared peak for
+   * either channel alone.
+   */
+  const sx = slipRatioVal / p.slipAnglePeak;
   const sy = slipAngle / p.slipAnglePeak;
 
   /**
-   * MAGNITUDE and DIRECTION are computed separately, and this split is the
-   * whole reason the model is well behaved.
+   * MAGNITUDE and DIRECTION are computed separately, and this split is the whole
+   * reason the model is well behaved.
    *
-   * The tempting formulation — drive each channel through its own fold-back
-   * curve and scale the pair into the circle — does not work, and fails in a way
-   * that is easy to miss. The fold-back tail decays only like `0.8/m`, so the
-   * product `sx * curve(sx)` GROWS without bound as slip grows. Scaling that
-   * demand vector into the circle then exactly cancels the fold-back, and a
-   * fully locked wheel ends up producing the same braking force as a perfectly
-   * threshold-braked one. The simulation would reward locking up.
+   * The tempting formulation — drive each channel through its own fold-back curve
+   * and scale the pair into the circle — does not work, and fails in a way that is
+   * easy to miss. A fold-back tail decays slower than `1/s`, so the product
+   * `s * curve(s)` GROWS without bound as slip grows. Scaling that demand vector
+   * into the circle then exactly cancels the fold-back, and a fully locked wheel
+   * ends up producing the same braking force as a perfectly threshold-braked one.
+   * The simulation would reward locking up.
    *
    * Splitting the two fixes it properly:
    *
-   *   magnitude = budget * curve(|slip|)   -> bounded, folds back past the peak
-   *   direction = unit vector of slip      -> carries where the force points
+   *   magnitude = budget * demand(|slip|)   -> bounded, folds back past the peak
+   *   direction = unit vector of slip       -> carries where the force points
    *
-   * The magnitude is bounded by `budget * peakRestore` for every possible slip,
-   * so the friction circle can never be exceeded, and the fold-back acts on the
-   * scalar where it cannot be cancelled.
+   * so the fold-back acts on a scalar where it cannot be cancelled, and the
+   * resultant is inside the circle by construction with no clamp anywhere.
    */
   const slipMagnitude = Math.sqrt(sx * sx + sy * sy);
   const saturation = saturate(slipMagnitude);
@@ -280,10 +315,10 @@ export const tireForces = (
    * high slip, making a fully locked wheel brake exactly as well as a perfectly
    * modulated one — the simulation would then reward locking up.
    *
-   * `demandCurve` is bounded by 1 and monotonically decreasing past the slip
-   * peak, which is the whole reason the fold-back survives.
+   * `demand` is bounded by 1 and decreasing past the combined slip peak, which is
+   * the whole reason the fold-back survives.
    */
-  const forceMagnitude = budget * demandCurve(slipMagnitude);
+  const forceMagnitude = budget * demand(slipMagnitude);
 
   /**
    * Direction of the force as a unit vector, so the resultant stays inside the
@@ -386,3 +421,4 @@ export const lateralLoadSplit = (
     outer: outer > 0 ? outer : 0,
   };
 };
+

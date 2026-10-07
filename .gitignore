@@ -7,6 +7,10 @@ build/
 node_modules/
 .pnpm-store/
 
+# Local npm cache, used because the global cache is not writable in this
+# environment (root-owned files). Keeps installs reproducible without sudo.
+.npm-cache/
+
 # Training output — these get large and are reproducible from checkpoint + seed
 runs/
 *.jsonl
