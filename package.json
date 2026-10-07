@@ -11,6 +11,8 @@
     "test": "node --test 'packages/**/test/*.test.ts'",
     "typecheck": "tsc --noEmit",
     "check": "pnpm run typecheck && pnpm run lint:determinism && pnpm test",
+    "build:web": "node scripts/build-browser.ts",
+    "drive": "node scripts/build-browser.ts && node packages/cli/src/serve.ts",
     "bench": "node packages/engine/test/bench.ts",
     "lint:determinism": "node scripts/lint-determinism.ts"
   },

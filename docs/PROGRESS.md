@@ -5,7 +5,27 @@ work lands, so the state of the project is never only in someone's head.
 
 ## Current state
 
-**Milestone 1 (Sim truth) — in progress.**
+**Milestone 2 (Watch a lap) — reached.** You can drive the car around a real
+circuit in the browser at `pnpm drive`.
+
+| Piece | State |
+|---|---|
+| Tire model: combined slip, friction circle, load sensitivity | Done, 11 tests |
+| Load transfer, brake bias, axle balance | Done, tested |
+| Powertrain: torque curve, gearbox, differential, rev limiter | Done, tested |
+| Chassis integration with wheel substeps | Done, 11 tests |
+| Track generation and hand-authored layouts | Done, tested |
+| Drivable browser viewer | Done, verified at 238 km/h |
+| Determinism contract + linter | Done, verified to catch violations |
+| Surface grid, runoff, track limits | Not started |
+| Collision, car-vs-car and barriers | Not started |
+| Observation vector (60 floats) | Not started |
+| Race operations: laps, tires, fuel, pits, damage | Not started |
+| ES trainer, islands, checkpoints | Not started |
+| Live streaming, gallery, ratings | Not started |
+
+Tests: **22 passing, 0 failing** (`pnpm test`).
+Determinism lint: **clean**. Typecheck: **clean**.
 
 | Piece | State |
 |---|---|
@@ -94,12 +114,103 @@ Calibration choice now pinned by test: a locked tire retains 70–92% of peak
 braking. This number decides how punishing a lockup is in the reward function, so
 it is asserted rather than left to drift.
 
+
+### Standing start, tracks, and the drivable viewer
+
+Added the track library and a viewer you can actually drive, then spent most of
+the session finding bugs in the drivetrain. **Every one of the nine below was
+found by logging a run and reading the numbers, not by reasoning about the code.**
+Several of them had already been "fixed" twice by reasoning, badly.
+
+**Tracks.** Closed Catmull-Rom centreline resampled at uniform ARC LENGTH.
+Spacing matters: the car's track position, grip-noise lookup and lookahead all
+index by distance, so spacing by spline parameter would make a car at constant
+speed appear to accelerate and decelerate through corners. Four layouts, each
+targeting a different skill, measured at 22.8 m (hairpin), 40.7 m (chicane) and
+a 126 km/h sweeper on the oval. Projection round-trips to 0.002 m.
+
+Curvature needed its own fix: differencing the tangent between ADJACENT 0.5 m
+samples is numerically meaningless, because the tangent barely rotates over that
+distance and the result is float noise divided by a small arc length. It reported
+the 20 m hairpin as a 632 m sweeper. Now differenced over 4 m and smoothed.
+
+**The nine bugs.**
+
+1. **No aerodynamic drag.** The car reached 441 km/h on a straight, which made
+   every braking distance meaningless. Now a 315 km/h terminal velocity.
+
+2. **Nothing coupled a coasting wheel to the road.** The car never stopped; it
+   settled at 0.4 km/h forever. Added rolling resistance, which also gives
+   lift-and-coast something physical to stand on.
+
+3. **A stopped car drifted BACKWARDS.** Below the slip reference speed the force
+   sign is noise, so it oscillated and crept to -0.66 m/s. Added a narrow
+   low-speed settling rule that cannot mask real dynamics under power.
+
+4. **The engine had a road-car torque curve.** Torque rose linearly from zero at
+   zero RPM, giving 12% of peak at idle, so a standing start crawled away at 3 m/s
+   after a full second of full throttle. The launch was not grip-limited; the
+   engine was barely running. Race engines make most of their torque from low
+   revs, and the curve now reaches 0.43 at idle.
+
+5. **Gearbox hunting.** Two-threshold shifting produced 1-2-1-3 within two
+   seconds, because an upshift landed the next gear BELOW the downshift threshold.
+   Replaced with a schedule derived from the torque curve. A wheel-torque
+   criterion concluded the car should never shift at all — first gear multiplies
+   by 3.4 against second's 2.6 and engine torque never closes that. The correct
+   criterion is POWER, not torque.
+
+6. **Wheelspin confused the gearbox.** Engine speed derived from the driven
+   wheels meant the box shifted on wheel speed rather than road speed, hunting
+   between first and second at 83 km/h. The gearbox now decides from a rolling
+   engine speed while the engine keeps using actual speed for torque and the
+   limiter.
+
+7. **Tire wear accumulated per SUBSTEP rather than per second**, so it scaled
+   with the substep count. At 16 substeps the tires hit 100% wear six seconds into
+   a standing start, grip collapsed to 65%, and the car span its wheels and lost
+   speed. A unit error whose symptom looked exactly like a physics bug.
+
+8. **No rev limiter.** The log read 15,512 rpm against a 15,000 limit. The
+   limiter now also FORCES an upshift: a spinning wheel sits above the upshift
+   threshold while the fuel cut has zeroed torque, so a demand-gated shift never
+   fires, no downshift can fire either, and the car is trapped in one gear at
+   zero drive torque.
+
+9. **Brake bias was 40% rear**, too much for the load distribution, so the REARS
+   saturated first — the opposite of what the tire model exists to produce.
+   Swept it: 0.64 gives near-simultaneous lockup with the highest deceleration.
+
+**A model recalibration that changed the design, not just a number.** Measuring
+the complete car rather than a single force showed that at the published value of
+0.86 of peak, locking the brakes was STRICTLY OPTIMAL over a full stop: a locked
+wheel holds a steady 0.86 while any modulating controller necessarily spends time
+at low slip making almost none, so the locked car stopped **21% SHORTER**. The
+simulation was rewarding a pedal slam. Sliding is now 0.70 of peak, deliberately
+harsher than a real slick, and a test measures the whole stop to keep it that way.
+From 200 km/h, locking now costs 13.3% more distance plus the steering loss.
+
+**Tooling.** Added a TypeScript typecheck gate. Node strips types without
+checking them, so a wrong arity, a bad property name or a bad assignment all fail
+at runtime or not at all. This caught three real errors the moment it was added,
+and the viewer is now typechecked too rather than being loose JavaScript behind
+the build.
+
+**Worth recording as a process lesson:** three times this session I "fixed" a bug
+by reasoning about the code, only to have the symptom persist or move. The fixes
+that worked came from printing the actual state — wheel speeds, forces, loads —
+and reading it. The brake-bias and lockup-order questions in particular were
+answered in seconds by a table of numbers after a long stretch of unproductive
+deduction.
+
 ## Next
 
-1. Powertrain — torque curve, gearbox, differential, brake bias as a setup gene.
-2. Chassis integration with wheel substeps.
-3. Track generation and validation.
+1. Surface grid with runoff and track limits, so running wide costs time rather
+   than ending the run. This is the piece that makes kerbs and gravel real.
+2. Collision: car-vs-car capsules and barriers, with damage.
+3. The 60-float observation contract, which is what makes track transfer work.
 4. A bench harness, so throughput is measured before any long run is promised.
+5. The ES trainer behind the `Driver` interface.
 
 ## How to check the state
 

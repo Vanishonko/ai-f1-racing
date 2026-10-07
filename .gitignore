@@ -11,6 +11,12 @@ node_modules/
 # environment (root-owned files). Keeps installs reproducible without sudo.
 .npm-cache/
 
+# Generated browser bundles. Rebuilt by `pnpm build:web` from the TypeScript
+# sources, so they are output rather than source.
+public/engine/
+public/viewer/
+.build-stage/
+
 # Training output — these get large and are reproducible from checkpoint + seed
 runs/
 *.jsonl
