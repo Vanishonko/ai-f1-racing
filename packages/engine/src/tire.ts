@@ -130,23 +130,46 @@ export const slipReference = (p: TireParams): number => 1 / p.slipRatioPeak;
 
 const slipReferenceOf = (p: TireParams): number => 1 / p.slipRatioPeak;
 /**
- * The demand curve, defined by ANCHOR POINTS taken from real tire behaviour
- * rather than by a fitted formula.
+/**
+ * Force available at full lock, as a fraction of the peak.
+ *
+ * THIS IS A DESIGN PARAMETER, not a measured constant, and it is one of the most
+ * important numbers in the whole simulation.
+ *
+ * Published tire curves sit near 0.86, and an earlier version used that. In the
+ * complete car that value made locking the brakes STRICTLY OPTIMAL: a locked
+ * wheel holds a steady 0.86, while any modulating controller necessarily spends
+ * some time at low slip where it makes almost no force. Measured over a full stop
+ * from 100 km/h the locked car stopped 21% SHORTER, so the simulation was
+ * rewarding a pedal slam.
+ *
+ * At 0.70 sliding is a genuine and large mistake, which is what the racing needs:
+ * drivers must learn to brake at the limit, and lifting mid-corner to stop a
+ * slide has to cost measurable lap time.
+ *
+ * The value is deliberately harsher than a real slick. That is a knowing trade of
+ * literal realism for behaviour that makes the sim worth watching, and it is
+ * pinned by test so it cannot drift.
+ */
+const LOCKED_FORCE_FRACTION = 0.7;
+
+/**
+ * The demand curve, defined by ANCHOR POINTS rather than by a fitted formula.
  *
  * This replaced several attempted closed forms, all of which failed the same
  * way. A saturating rise followed by a `1/(1 + k*(q-1)^p)` tail gives a monotone
- * slope past the peak, but real tire curves PLATEAU: grip falls quickly to about
- * 95% by 2.5x peak slip and then barely moves out to full lock. No choice of `k`
- * or `p` reproduces that, because that is not the shape of a smooth falloff.
+ * slope past the peak, but real tire curves PLATEAU: grip falls quickly and then
+ * barely moves out to full lock. No choice of `k` or `p` reproduces that, because
+ * that is not the shape of a smooth falloff.
  *
  * Anchors are `(slip in multiples of the shared peak tau, fraction of budget)`.
- * The values are consistent with published racing-slick curves: a peak near 10%
- * slip, about 5% of grip lost by 25% slip, and about 15% lost at full lock.
+ * The final anchor is `LOCKED_FORCE_FRACTION`, and the knots between the peak and
+ * it are spaced so the falloff is steep enough to make overslip expensive without
+ * making the car impossible to drive at the limit.
  *
  * Every anchor is <= 1 and the knot at q == 1 IS the peak, so the curve comes out
- * normalized by construction. That matters: it is what lets the friction circle
- * hold with no clamp anywhere, and a clamp would cancel the fold-back and make
- * locking up free.
+ * normalized by construction. That is what lets the friction circle hold with no
+ * clamp anywhere, and a clamp would cancel the fold-back entirely.
  */
 const DEMAND_ANCHORS: ReadonlyArray<readonly [number, number]> = [
   [0, 0],
@@ -154,16 +177,16 @@ const DEMAND_ANCHORS: ReadonlyArray<readonly [number, number]> = [
   [0.5, 0.68],
   [0.75, 0.88],
   [1, 1], // the peak
-  [1.25, 0.995],
-  [1.5, 0.985],
-  [2, 0.97],
-  [2.5, 0.95],
-  [3, 0.93],
-  [4, 0.9],
-  [5, 0.88],
-  [6, 0.87],
-  [8, 0.86],
-  [16, 0.85],
+  [1.25, 0.93],
+  [1.5, 0.87],
+  [2, 0.81],
+  [2.5, 0.765],
+  [3, 0.745],
+  [4, 0.725],
+  [5, 0.715],
+  [6, 0.708],
+  [8, 0.703],
+  [16, LOCKED_FORCE_FRACTION],
 ];
 
 /** Upper bound of the table, in multiples of the shared slip peak `tau`. */

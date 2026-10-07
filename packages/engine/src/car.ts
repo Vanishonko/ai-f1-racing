@@ -24,6 +24,7 @@ import {
   DEFAULT_DIFF,
   DEFAULT_ENGINE,
   DEFAULT_GEARBOX,
+  buildShiftSchedule,
   engineTorque,
   nextGear,
   rpmFor,
@@ -41,8 +42,20 @@ export const WHEEL_RL = 2;
 export const WHEEL_RR = 3;
 export const WHEEL_COUNT = 4;
 
-/** Substeps per tick for wheel dynamics, which are stiffer than the chassis. */
-export const WHEEL_SUBSTEPS = 4;
+/**
+ * Substeps per tick for the wheel dynamics.
+ *
+ * The tire's initial slip stiffness is enormous — around 86,000 N per unit slip
+ * ratio — against a wheel inertia of a couple of kg m^2, which makes the
+ * wheel-road coupling a genuinely stiff system with a time constant of a few
+ * milliseconds. An explicit update at 60 Hz is far too coarse for that and
+ * produces a visible oscillation in wheel speed on a hard launch.
+ *
+ * Passing the substep count as an argument lets the trainer and the viewer share
+ * one implementation, and lets a future adaptive caller raise it without forking
+ * the physics.
+ */
+export const DEFAULT_WHEEL_SUBSTEPS = 16;
 
 /**
  * Below this road speed the slip-ratio denominator is clamped, so a stationary car
@@ -52,6 +65,55 @@ export const MIN_REFERENCE_SPEED = 1.0;
 
 /** Grip multiplier at maximum tire wear. Worn tires lose about a third. */
 const WORN_GRIP = 0.65;
+
+/**
+ * Tire wear accumulation rates, PER SECOND.
+ *
+ * Both are multiplied by `substep`, which is a duration, so the total wear per
+ * tick is independent of the substep count.
+ *
+ * That independence is the whole point and it was missing. The previous version
+ * multiplied by a factor that stood in for "per tick" and then also by `substep`,
+ * which made wear accumulate `wheelSubsteps` times faster than intended. At 16
+ * substeps the tires reached 100% wear about six seconds into a standing start,
+ * grip collapsed to 65%, and the car began spinning its drive wheels, losing
+ * speed and oscillating its wheel speeds. A subtle unit error, and the resulting
+ * behaviour looked exactly like a physics bug rather than a bookkeeping one.
+ */
+const WEAR_RATE_IDLE = 0.0012;
+const WEAR_RATE_SLIDING = 0.024;
+
+/**
+ * Rolling-resistance coefficient, as a fraction of the wheel's normal load.
+ *
+ * Small, but not optional. Without it nothing couples a coasting wheel to the
+ * road, so the wheel keeps its angular momentum forever and the car never quite
+ * stops — it settles at a few tenths of a km/h instead of coming to rest. That is
+ * both unphysical and a nuisance, since a race needs cars to be able to stop.
+ *
+ * It also gives lift-and-coast and engine-braking behaviour something physical to
+ * stand on, rather than having the car coast at constant speed.
+ */
+const ROLLING_RESISTANCE = 0.014;
+
+/**
+ * Speed below which the car is snapped to a complete stop [m/s].
+ *
+ * Below the slip-ratio reference speed, slip ratio loses physical meaning, so the
+ * longitudinal force computed from it becomes noise and flips sign between ticks.
+ * Left alone that makes a "stopped" car oscillate and slowly accelerate BACKWARDS
+ * — it drifted to -0.66 m/s in testing.
+ *
+ * The rule is deliberately narrow, so it can never mask real dynamics:
+ *   - the driver must not be demanding throttle, and
+ *   - they must be braking, or already crawling below the threshold anyway.
+ *
+ * A car under power, or coasting at speed, is untouched by this.
+ */
+const STOP_SPEED = 0.35;
+
+/** Lateral velocity below which a near-stationary car is considered settled [m/s]. */
+const SETTLE_LATERAL_SPEED = 0.2;
 
 export interface CarParams {
   mass: number;
@@ -80,6 +142,16 @@ export interface CarParams {
   /** Front downforce [N] at 50 m/s; scales with speed squared. */
   downforceFront: number;
   downforceRear: number;
+  /**
+   * Effective drag area, `Cd * A` [m^2]. Multiplied by air density and speed
+   * squared to give drag force.
+   *
+   * Without this the car accelerated without limit — it reached 441 km/h on a
+   * 20 second run, which made braking distances meaningless and let it out-brake
+   * any corner. Top speed has to be a real limit for corner entry to be a
+   * decision.
+   */
+  dragArea: number;
 }
 
 export const DEFAULT_CAR_PARAMS: CarParams = (() => {
@@ -98,7 +170,7 @@ export const DEFAULT_CAR_PARAMS: CarParams = (() => {
     wheelRadius: 0.33,
     wheelInertia: 1.1,
     weightDistFront,
-    brakeBiasFront: 0.6,
+    brakeBiasFront: 0.64,
     maxBrakeTorque: 6200,
     engine: DEFAULT_ENGINE,
     gearbox: DEFAULT_GEARBOX,
@@ -106,6 +178,11 @@ export const DEFAULT_CAR_PARAMS: CarParams = (() => {
     tire: DEFAULT_TIRE,
     downforceFront: 1900,
     downforceRear: 2300,
+    // Tuned for a terminal velocity near 315 km/h, which is roughly right for a
+    // high-downforce single-seater. Slightly more drag is needed than a bare
+    // Cd*A calculation suggests because the tire model's own rolling behaviour
+    // does not drain energy here.
+    dragArea: 1.1,
   };
 })();
 
@@ -253,12 +330,39 @@ export interface StepContext {
   gripNoise: number;
   /** Fraction of downforce lost to dirty air, 0 in clean air. */
   dirtyAir: number;
+  /**
+   * Per-tick brake-pressure scale, 0..1, multiplying the driver's brake demand.
+   *
+   * This exists so brake pressure can be MODULATED within a braking event, which
+   * is what makes slip management a skill. A car with no ABS cannot simply hold
+   * full pressure and stop fastest: on these tires maximum deceleration happens
+   * at a slip ratio near 0.11, while full pressure drives the wheels to a slip
+   * ratio of -1 where about 86% of the peak force is available.
+   *
+   * Modelling it as a separate input also means the evolutionary trainer can
+   * discover threshold braking and lift-off on its own, rather than having it
+   * handed to the population as an assumption baked into the brake pedal.
+   */
+  brakeScale: number;
 }
 
-export const CLEAN_AIR: StepContext = { surfaceGrip: 1, gripNoise: 1, dirtyAir: 0 };
+export const CLEAN_AIR: StepContext = {
+  surfaceGrip: 1,
+  gripNoise: 1,
+  dirtyAir: 0,
+  brakeScale: 1,
+};
 
-/** Seconds between tire-wear updates; wear is slow and need not run every tick. */
 const STEER_RATE = 6.0; // rad/s, roughly a fast hand movement
+
+/**
+ * The shift schedule, built once from the default engine and gearbox.
+ *
+ * Built at module load because it depends only on the torque curve and the gear
+ * ratios, neither of which changes at runtime. A car with different hardware
+ * builds its own; see `buildShiftSchedule`.
+ */
+const SHIFT_SCHEDULE = buildShiftSchedule(DEFAULT_ENGINE, DEFAULT_GEARBOX);
 
 /**
  * Advances one car by `dt` seconds, mutating `state`.
@@ -274,16 +378,64 @@ export const stepCar = (
   params: CarParams = DEFAULT_CAR_PARAMS,
   dt = 1 / 60,
   context: StepContext = CLEAN_AIR,
+  wheelSubsteps = DEFAULT_WHEEL_SUBSTEPS,
 ): void => {
   // --- gearbox and engine ---
-  const drivenOmega = (state.omega[WHEEL_RL]! + state.omega[WHEEL_RR]!) * 0.5;
+  //
+  // Engine speed follows the DRIVEN WHEELS, which is what the gearbox physically
+  // sees whenever the clutch is engaged. Road speed was tried and is wrong: the
+  // engine then goes blind to wheelspin, so a spinning wheel never reaches the
+  // limiter, the fuel cut never fires, and the wheel spins up without bound. In
+  // testing the car reached 252 km/h and then decelerated back to 195 while the
+  // drive wheels kept spinning at full throttle.
+  //
+  // Taking the maximum of wheel and road speed was also tried, and made the car
+  // shift down a gear at 83 km/h while revving past its limiter, because wheel
+  // speed and road speed were feeding different parts of the shift logic.
+  //
+  // With a wheel-derived engine speed the whole thing is self-regulating, and the
+  // reason is the tire model rather than any limiter: as slip grows the tire's
+  // longitudinal force folds away, so the wheel accelerates into an equilibrium
+  // near 60-70% slip instead of running away. The feedback is physical.
   const gearRatio = params.gearbox.ratios[state.gear] ?? params.gearbox.ratios[0]!;
-  state.rpm = rpmFor(drivenOmega, gearRatio, params.gearbox.finalDrive, params.engine);
+  const drivenOmega = (state.omega[WHEEL_RL]! + state.omega[WHEEL_RR]!) * 0.5;
+  const rawRpm = rpmFor(drivenOmega, gearRatio, params.gearbox.finalDrive, params.engine);
+  // Reported engine speed is clipped at the limiter. The physical speed can sit a
+  // few percent above it because the fuel cut zeroes torque while the wheel still
+  // has rotational momentum to spend, and a real rev counter does not display
+  // past its stop either.
+  state.rpm = rawRpm < params.engine.redlineRpm ? rawRpm : params.engine.redlineRpm;
 
+  /**
+   * The RPM the engine would be turning if the tires were gripping, from road
+   * speed alone.
+   *
+   * The GEARBOX decides from this rather than from actual engine speed, and the
+   * distinction matters whenever the wheels are sliding. During wheelspin the
+   * wheels turn several times faster than the car is moving, so engine speed is
+   * not a measure of road speed at all — in testing the box shifted down at
+   * 83 km/h because the spinning wheel made a lower gear look revvable when it
+   * would in fact have gone straight past the limiter.
+   *
+   * The ENGINE still uses actual speed for torque, power delivery and the rev
+   * limiter, which is what keeps the feedback physical. Only the gear choice is
+   * taken from the car's true speed.
+   */
+  const rollingRpm = rpmFor(state.vx / params.wheelRadius, gearRatio, params.gearbox.finalDrive, params.engine);
+
+  // Gear selection. A shift takes time, so the drive torque is cut for its
+  // duration and no further shift is considered until it completes.
   if (state.shiftTimer > 0) {
     state.shiftTimer = state.shiftTimer > dt ? state.shiftTimer - dt : 0;
   } else {
-    const wanted = nextGear(state.gear, state.rpm, state.throttle, params.gearbox, false);
+    const wanted = nextGear(
+      state.gear,
+      rollingRpm,
+      state.throttle,
+      params.gearbox,
+      SHIFT_SCHEDULE,
+      params.engine.redlineRpm,
+    );
     if (wanted !== state.gear) {
       state.gear = wanted;
       state.shiftTimer = SHIFT_DURATION;
@@ -302,12 +454,31 @@ export const stepCar = (
   // --- load transfer from the previous tick's acceleration ---
   computeNormalLoads(state, params, state.lastLongAccel, state.lastLatAccel);
 
+  /**
+   * Aerodynamic drag, applied per substep alongside the tire forces so it scales
+   * correctly with the substep and so the load transfer on the next tick sees the
+   * net acceleration rather than only the tractive one.
+   *
+   * Drag acts along the velocity vector, which is why it is split into body-frame
+   * components rather than applied purely longitudinally: at a slip angle the car
+   * is genuinely being dragged sideways too.
+   */
+  const AIR_DENSITY = 1.225;
+  const speedForDrag = len(state.vx, state.vy);
+  const dragMagnitude = 0.5 * AIR_DENSITY * params.dragArea * speedForDrag * speedForDrag;
+  const dragLong = speedForDrag > 1e-6 ? (-dragMagnitude * state.vx) / speedForDrag : 0;
+  const dragLat = speedForDrag > 1e-6 ? (-dragMagnitude * state.vy) / speedForDrag : 0;
+
   // --- wheel dynamics, substepped ---
-  const substep = dt / WHEEL_SUBSTEPS;
+  const substep = dt / wheelSubsteps;
   const grip = context.surfaceGrip * context.gripNoise;
   const axleTorque = engineOut * gearRatio * params.gearbox.finalDrive;
   const diff = params.differential;
-  const brakeTotal = clamp(state.brake, 0, 1) * params.maxBrakeTorque;
+  // Brake torque is the driver's demand scaled by the per-tick pressure control,
+  // which is what allows a braking event to be modulated rather than merely
+  // slammed. See `StepContext.brakeScale`.
+  const brakeTotal =
+    clamp(state.brake, 0, 1) * clamp(context.brakeScale, 0, 1) * params.maxBrakeTorque;
   const frontBrakeAxle = brakeTotal * params.brakeBiasFront;
   const rearBrakeAxle = brakeTotal * (1 - params.brakeBiasFront);
 
@@ -318,7 +489,7 @@ export const stepCar = (
   let sumLatAccel = 0;
   let sumYawAccel = 0;
 
-  for (let step = 0; step < WHEEL_SUBSTEPS; step++) {
+  for (let step = 0; step < wheelSubsteps; step++) {
     // --- differential ---
     let torqueRL = axleTorque * 0.5;
     let torqueRR = axleTorque * 0.5;
@@ -398,6 +569,24 @@ export const stepCar = (
       const brakeShare = (isFront ? frontBrakeAxle : rearBrakeAxle) * 0.5;
       const omega = state.omega[wheel]!;
 
+      /**
+       * Rolling resistance: a small opposing torque that always acts.
+       *
+       * This is the ONLY thing coupling a coasting wheel to the road. Without it
+       * a wheel in neutral keeps its angular momentum forever, so the car never
+       * quite stops and settles at a few tenths of a km/h instead of rest. It
+       * also gives lift-and-coast and engine-braking behaviour something physical
+       * to stand on.
+       */
+      const rollingResistance = ROLLING_RESISTANCE * Fz * params.wheelRadius;
+      // Applied as a speed-proportional term that exactly cancels at rest, so it
+      // can never drive the wheel backwards and set up a limit cycle.
+      const rollingScale = omega > 0 ? 1 : omega < 0 ? -1 : 0;
+      const rollingMagnitude = rollingResistance < Math.abs(omega) * params.wheelInertia / substep
+        ? rollingResistance
+        : Math.abs(omega) * params.wheelInertia / substep;
+      netTorque -= rollingScale * rollingMagnitude;
+
       if (omega > 0) {
         netTorque -= brakeShare;
       } else if (omega < 0) {
@@ -427,7 +616,7 @@ export const stepCar = (
       // faster. This is what makes stint length a real decision rather than a
       // fixed number of laps.
       const sliding = force.locked || Math.abs(slipRatio) > 0.3;
-      const rate = 0.00002 * force.utilization + (sliding ? 0.0004 : 0) * force.utilization;
+      const rate = WEAR_RATE_IDLE * force.utilization + (sliding ? WEAR_RATE_SLIDING : 0) * force.utilization;
       state.wear[wheel] = Math.min(1, wear + rate * substep);
     }
 
@@ -437,10 +626,11 @@ export const stepCar = (
   }
 
   // Each substep contributed an acceleration for a slice of the tick; the chassis
-  // integrates once per tick, so these are averaged.
-  const longAccel = sumLongAccel / WHEEL_SUBSTEPS;
-  const latAccel = sumLatAccel / WHEEL_SUBSTEPS;
-  const yawAccel = sumYawAccel / WHEEL_SUBSTEPS;
+  // integrates once per tick, so these are averaged. Drag is a per-tick force, not
+  // a per-substep one, so it is added once here after the average.
+  const longAccel = sumLongAccel / wheelSubsteps + dragLong / params.mass;
+  const latAccel = sumLatAccel / wheelSubsteps + dragLat / params.mass;
+  const yawAccel = sumYawAccel / wheelSubsteps;
 
   state.lastLongAccel = longAccel;
   state.lastLatAccel = latAccel;

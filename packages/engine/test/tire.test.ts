@@ -51,14 +51,16 @@ test("tire: longitudinal force peaks at the design slip and then falls away", ()
     Math.abs(atFullLock) < Math.abs(atPeak) * 0.97,
     `full lock must lose force vs the peak: ${Math.abs(atFullLock)} vs ${Math.abs(atPeak)}`,
   );
-  // The braking loss at full lock is moderate — a racing slick sliding on asphalt
-  // keeps most of its kinetic friction. That is realistic, and it means the real
-  // cost of a lockup is not stopping power, it is that you can no longer steer.
-  // The lateral-collapse test below is where that shows up.
+  // The braking loss at full lock is a DESIGN CHOICE, deliberately harsher than
+  // a real slick. Published curves sit near 0.86, but at that value the complete
+  // car made locking the brakes strictly optimal, because a locked wheel holds a
+  // steady 0.86 while any modulating controller necessarily spends time at low
+  // slip making almost no force. 0.70 makes sliding a real mistake, which is what
+  // the racing needs. Pinned here so it cannot drift back.
   const retained = Math.abs(atFullLock) / Math.abs(atPeak);
   assert.ok(
-    retained > 0.8 && retained < 0.95,
-    `a locked tire should keep 80-95% of peak braking, kept ${(retained * 100).toFixed(1)}%`,
+    retained > 0.65 && retained < 0.75,
+    `a locked tire should keep 65-75% of peak braking, kept ${(retained * 100).toFixed(1)}%`,
   );
 
   // The fold-back must be steep enough that slip management is a real skill
@@ -407,7 +409,7 @@ test("a locked wheel brakes measurably worse than one at the slip peak", () => {
   // steering, not an instant retirement. That matters for how much the reward
   // function should punish a lockup event, so it is pinned down here.
   const retained = locked / peak;
-  assert.ok(retained > 0.8, `a locked tire keeps most sliding friction: ${retained}`);
+  assert.ok(retained > 0.65, `a locked tire keeps most sliding friction: ${retained}`);
   assert.ok(retained < 1, "but never more than the peak");
 });
 

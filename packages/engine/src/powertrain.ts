@@ -17,13 +17,29 @@ export interface EngineSpec {
   peakTorque: number;
   /** RPM at which torque peaks. */
   peakTorqueRpm: number;
+  /**
+   * Fraction of peak torque available at idle.
+   *
+   * Race engines are NOT production engines: a naturally aspirated racing engine
+   * makes most of its torque from low revs, which is exactly why it can be
+   * launched and driven out of slow corners at all.
+   *
+   * An earlier version scaled torque linearly from zero at zero RPM, which is a
+   * road-car shape. At idle it produced 12% of peak, so a standing start made
+   * almost no torque and the car crawled away at 3 m/s after a full second of
+   * full throttle. The launch was not slow because of grip; it was slow because
+   * the engine was barely running.
+   */
+  idleTorqueFraction: number;
   /** RPM at which torque falls to `torqueFalloff` of peak. */
   torqueFalloffRpm: number;
-  /** Fraction of peak torque available at `torqueFalloffRpm` and beyond. */
+  /** Fraction of peak torque available at `torqueFalloffRpm`. */
   torqueFalloff: number;
+  /** Fraction of peak torque still available at the rev limit. */
+  torqueFalloffAtRedline: number;
   /** Hard rev limit. Fuel cut above this. */
   redlineRpm: number;
-  /** Idle RPM, the floor when the clutch is in effect at low speed. */
+  /** Idle RPM, the floor when the clutch is slipping at low speed. */
   idleRpm: number;
   /** Braking torque from the engine when the throttle is closed [N m]. */
   engineBrakingTorque: number;
@@ -32,41 +48,77 @@ export interface EngineSpec {
 export const DEFAULT_ENGINE: EngineSpec = {
   peakTorque: 480,
   peakTorqueRpm: 10500,
+  idleTorqueFraction: 0.43,
   torqueFalloffRpm: 13000,
-  torqueFalloff: 0.8,
+  torqueFalloff: 0.85,
+  torqueFalloffAtRedline: 0.6,
   redlineRpm: 15000,
   idleRpm: 1800,
   engineBrakingTorque: 90,
 };
 
 /**
- * Engine torque at a given RPM and throttle.
+ * Torque as a fraction of peak, from three anchor points.
  *
- * A simple triangular curve: rises linearly to the torque peak, then falls to
- * `torqueFalloff` of peak at the falloff point, staying flat beyond it. Real
- * curves are lumpier; what matters here is that torque is NOT constant, so gear
- * choice changes the outcome and short-shifting costs lap time.
+ * A race engine makes useful torque off idle, peaks in the mid range, then falls
+ * away to the limiter. Modelling that needs a curve with an interior maximum, and
+ * two asymptotic terms multiplied together CANNOT produce one — that attempt
+ * peaked at zero RPM. Three anchors with straight segments between them gives the
+ * right shape, hits every named value exactly, and leaves no hidden algebra to
+ * get wrong.
+ *
+ * Anchors: idle, peak, redline.
+ */
+export const torqueFraction = (rpm: number, spec: EngineSpec): number => {
+  const r = clamp(rpm, 0, spec.redlineRpm);
+  if (r <= 0) return 0;
+
+  const idle = spec.idleRpm;
+  const peak = spec.peakTorqueRpm;
+  const redline = spec.redlineRpm;
+
+  if (r <= idle) {
+    // Below idle the clutch is slipping, so the engine is held near its idle
+    // torque rather than stalling to zero. This is what makes a standing start
+    // possible at all.
+    return spec.idleTorqueFraction * (r / idle);
+  }
+
+  if (r <= peak) {
+    const t = peak > idle ? (r - idle) / (peak - idle) : 1;
+    return spec.idleTorqueFraction + (1 - spec.idleTorqueFraction) * t;
+  }
+
+  if (r <= spec.torqueFalloffRpm) {
+    const span = spec.torqueFalloffRpm - peak;
+    const t = span > 0 ? (r - peak) / span : 1;
+    return 1 - (1 - spec.torqueFalloff) * t;
+  }
+
+  // Beyond the falloff point torque drops to the limiter, where the driver should
+  // already have shifted.
+  const span = redline - spec.torqueFalloffRpm;
+  const t = span > 0 ? (r - spec.torqueFalloffRpm) / span : 1;
+  return spec.torqueFalloff * (1 - t) + spec.torqueFalloffAtRedline * t;
+};
+
+/**
+ * Engine torque at a given RPM and throttle.
  *
  * `throttle` scales the torque ABOVE the engine-braking baseline rather than
  * scaling it to zero, so a closed throttle produces drag instead of nothing.
  */
 export const engineTorque = (rpm: number, throttle: number, spec: EngineSpec): number => {
-  const rpmClamped = clamp(rpm, 0, spec.redlineRpm);
-  let torque: number;
-
-  if (rpmClamped <= spec.peakTorqueRpm) {
-    // Rising limb, from zero torque at zero RPM to peak torque at the peak.
-    torque = spec.peakTorque * (rpmClamped / spec.peakTorqueRpm);
-  } else if (rpmClamped <= spec.torqueFalloffRpm) {
-    const t = (rpmClamped - spec.peakTorqueRpm) / (spec.torqueFalloffRpm - spec.peakTorqueRpm);
-    torque = spec.peakTorque * (1 - t * (1 - spec.torqueFalloff));
-  } else {
-    torque = spec.peakTorque * spec.torqueFalloff;
-  }
+  // Rev limiter. A fuel cut is abrupt, and that abruptness is the point: it is how
+  // a driver knows to shift. Without it the engine kept making power past the
+  // stated limit, and in testing the log read 15,512 rpm against a 15,000 rpm
+  // limiter, which also confused the shift schedule into changing down a gear it
+  // should have stayed out of.
+  const limited = rpm >= spec.redlineRpm ? 0 : clamp(throttle, 0, 1);
+  const commanded = spec.peakTorque * torqueFraction(rpm, spec) * limited;
 
   // Closed throttle: only drag, and more of it at higher RPM.
-  const drag = spec.engineBrakingTorque * (rpmClamped / spec.redlineRpm);
-  const commanded = torque * clamp(throttle, 0, 1);
+  const drag = spec.engineBrakingTorque * (clamp(rpm, 0, spec.redlineRpm) / spec.redlineRpm);
   return commanded - drag;
 };
 
@@ -74,10 +126,6 @@ export interface GearboxSpec {
   /** Ratio per gear, first to last. Must be descending. */
   ratios: number[];
   finalDrive: number;
-  /** RPM to shift up at, chosen to land the next gear in its power band. */
-  shiftUpRpm: number;
-  /** RPM to shift down at. Below shiftUp to create hysteresis. */
-  shiftDownRpm: number;
 }
 
 /**
@@ -89,37 +137,171 @@ export interface GearboxSpec {
 export const DEFAULT_GEARBOX: GearboxSpec = {
   ratios: [3.4, 2.6, 2.05, 1.65, 1.35, 1.12],
   finalDrive: 3.7,
-  shiftUpRpm: 13500,
-  shiftDownRpm: 7500,
 };
 
 /**
- * Automatic shift decision.
+ * Automatic shift schedule.
  *
- * Both thresholds are checked at once so they can never fight each other. The
- * gap between `shiftUpRpm` and `shiftDownRpm` is hysteresis: without it a car
- * sitting near a threshold would shift up and down every tick, which is both
- * unphysical and a source of jitter the drivers would have to learn around.
+ * A two-threshold scheme (shift up at X, down at Y) is the obvious approach and
+ * it HUNTS. With a wide gap between the thresholds an upshift can land the next
+ * gear below the downshift threshold, so the box immediately shifts back: in
+ * testing that produced 1 -> 2 -> 1 -> 3 within a couple of seconds, which is
+ * both unphysical and a source of jitter the drivers would have to learn around.
+ *
+ * Instead the schedule is computed once, at build time, by asking one question
+ * for every (gear, RPM) pair: would the NEXT gear make more torque at the wheels
+ * than the current one? That is the actual criterion for shifting, it derives
+ * from the torque curve and the ratios rather than from hand-tuned RPM numbers,
+ * and it cannot hunt because the answer does not depend on history.
+ *
+ * Ties break toward the lower gear, so the engine sits high in the range where an
+ * overtake is available.
+ */
+export const buildShiftSchedule = (
+  engine: EngineSpec,
+  gearbox: GearboxSpec,
+): { upshiftRpm: Float64Array; downshiftRpm: Float64Array } => {
+  const gears = gearbox.ratios.length;
+  const upshiftRpm = new Float64Array(gears);
+  const downshiftRpm = new Float64Array(gears);
+
+  /*
+   * The criterion is POWER, not torque at the wheels.
+   *
+   * A comparison of wheel torque was tried first and concluded that the car should
+   * never shift at all: first gear multiplies by 3.4 against second gear's 2.6, and
+   * engine torque never falls enough to close a gap that wide, so "the next gear
+   * makes more wheel torque" is false at every RPM. Shifting is not about peak
+   * torque, it is about staying near the engine's power peak as road speed rises.
+   *
+   * So the test is: for a given engine speed in the current gear, would the next
+   * gear make more power at the engine speed it would then be turning?
+   */
+
+  /** Torque available at an engine speed, or zero outside the usable range. */
+  const torqueAt = (rpm: number): number =>
+    rpm < engine.idleRpm || rpm > engine.redlineRpm ? 0 : engineTorque(rpm, 1, engine);
+
+  /** Would shifting UP from `rpm` produce more power? */
+  const upshiftWins = (rpm: number, ratioCurrent: number, ratioNext: number): boolean => {
+    const rpmNext = rpm * (ratioNext / ratioCurrent);
+    return torqueAt(rpmNext) * rpmNext > torqueAt(rpm) * rpm;
+  };
+
+  /** Would shifting DOWN from `rpm` produce more power? */
+  const downshiftWins = (rpm: number, ratioCurrent: number, ratioPrevious: number): boolean => {
+    const rpmPrevious = rpm * (ratioPrevious / ratioCurrent);
+    return torqueAt(rpmPrevious) * rpmPrevious > torqueAt(rpm) * rpm;
+  };
+
+  for (let gear = 0; gear < gears; gear++) {
+    if (gear + 1 < gears) {
+      // First engine speed at which the next gear would out-pull this one.
+      let rpm = engine.redlineRpm;
+      for (let candidate = engine.idleRpm; candidate <= engine.redlineRpm; candidate += 25) {
+        if (upshiftWins(candidate, gearbox.ratios[gear]!, gearbox.ratios[gear + 1]!)) {
+          rpm = candidate;
+          break;
+        }
+      }
+      upshiftRpm[gear] = rpm;
+    } else {
+      upshiftRpm[gear] = engine.redlineRpm;
+    }
+
+    if (gear > 0) {
+      /*
+       * The downshift threshold must sit BELOW where the matching upshift lands,
+       * and that is what creates usable hysteresis.
+       *
+       * Deriving it independently does not work. For the 1.35/1.12 pair the
+       * upshift lands at 12,444 rpm while an independently computed downshift
+       * threshold sat at 12,600 rpm — above the landing point — so the box shifted
+       * up and immediately back down, forever. In testing that produced 71 gear
+       * changes in a single twelve second launch.
+       *
+       * Instead: find the RPM at which the gear below genuinely becomes the better
+       * choice, and take the larger of that and a margin below the landing point.
+       * The previous gear is checked at the speed it would actually be turning, so
+       * a downshift is refused when it would simply over-rev.
+       */
+      const ratioCurrent = gearbox.ratios[gear]!;
+      const ratioPrevious = gearbox.ratios[gear - 1]!;
+
+      // Engine speed this gear will be turning in the gear below, at the point
+      // where the upshift happened.
+      const landingRpm = upshiftRpm[gear - 1]! * (ratioCurrent / ratioPrevious);
+      const floor = landingRpm * 0.88;
+
+      let rpm = engine.idleRpm;
+      for (let candidate = engine.idleRpm; candidate <= engine.redlineRpm; candidate += 25) {
+        if (downshiftWins(candidate, ratioCurrent, ratioPrevious)) {
+          rpm = candidate;
+          break;
+        }
+      }
+      downshiftRpm[gear] = clamp(
+        rpm < floor ? floor : rpm,
+        engine.idleRpm,
+        engine.redlineRpm,
+      );
+    } else {
+      downshiftRpm[gear] = 0;
+    }
+  }
+
+  return { upshiftRpm, downshiftRpm };
+};
+
+/**
+ * Automatic shift decision against a prebuilt schedule.
+ *
+ * Returns the current gear whenever no shift is warranted, so it is safe to call
+ * every tick.
  */
 export const nextGear = (
   currentGear: number,
   rpm: number,
   throttle: number,
-  spec: GearboxSpec,
-  shifting: boolean,
+  gearbox: GearboxSpec,
+  schedule: { upshiftRpm: Float64Array; downshiftRpm: Float64Array },
+  engineRedline: number,
 ): number => {
-  const lastGear = spec.ratios.length - 1;
+  const lastGear = gearbox.ratios.length - 1;
   if (currentGear < 0) return 0;
   if (currentGear > lastGear) return lastGear;
 
-  // Upshift when revving out under load.
-  if (rpm > spec.shiftUpRpm && throttle > 0.1 && currentGear < lastGear) {
+  // An upshift needs actual throttle demand, so lifting off does not make the box
+  // hunt upward.
+  //
+  // The rev limit OVERRIDES that test, and has to. A wheel spinning into the
+  // limiter sits at an engine speed far above the upshift threshold, while the
+  // fuel cut has zeroed the torque — so a demand-gated upshift never fires, no
+  // downshift can fire either because the revs are too high, and the car is stuck
+  // in one gear at zero drive torque with a spinning wheel. In testing that pinned
+  // it in first at 105 km/h. Above the limiter the driver's demand is irrelevant
+  // anyway: the only sensible action is to change up.
+  const overRev = rpm >= engineRedline;
+  if (currentGear < lastGear && rpm > schedule.upshiftRpm[currentGear]! && (throttle > 0.05 || overRev)) {
     return currentGear + 1;
   }
-  // Downshift when the revs drop, regardless of throttle, so the car is always
-  // in a gear it can accelerate out of.
-  if (rpm < spec.shiftDownRpm && currentGear > 0) {
-    return currentGear - 1;
+  if (currentGear > 0 && rpm < schedule.downshiftRpm[currentGear]!) {
+    /*
+     * NEVER shift down into a gear that would immediately over-rev.
+     *
+     * The shift schedule is built from engine speed alone, but a car can be
+     * travelling fast enough that the lower gear is already past the limiter.
+     * Without this guard the box drops a gear, instantly hits the limiter, loses
+     * all drive torque, and then shifts back up — a hunting cycle that cost real
+     * speed. In testing it bounced between first and second at 83 km/h.
+     *
+     * The check is a pure ratio, so it needs no state: at the same road speed the
+     * lower gear turns `ratioLower / ratioCurrent` times as fast.
+     */
+    const lowerRpm = rpm * (gearbox.ratios[currentGear - 1]! / gearbox.ratios[currentGear]!);
+    if (lowerRpm < engineRedline) {
+      return currentGear - 1;
+    }
   }
   return currentGear;
 };
