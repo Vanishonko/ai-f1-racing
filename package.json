@@ -1,0 +1,15 @@
+{
+  "name": "ai-f1",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Evolutionary F1 racing AI: deterministic 2D sim, ES trainer, live viewer",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "test": "node --test 'packages/**/test/*.test.ts'",
+    "bench": "node packages/engine/test/bench.ts",
+    "lint:determinism": "node scripts/lint-determinism.ts"
+  }
+}

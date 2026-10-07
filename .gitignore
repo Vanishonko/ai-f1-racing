@@ -1,0 +1,22 @@
+# Build artifacts
+dist/
+build/
+*.tsbuildinfo
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Training output — these get large and are reproducible from checkpoint + seed
+runs/
+*.jsonl
+!docs/**/*.jsonl
+
+# Screenshots and recordings produced during verification
+captures/
+
+# OS noise
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
