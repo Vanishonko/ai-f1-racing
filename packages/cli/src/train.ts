@@ -42,6 +42,7 @@ interface Options {
   quiet: boolean;
   resume: boolean;
   workers: number | undefined;
+  saveEvery: number;
 }
 
 const USAGE = `
@@ -57,6 +58,7 @@ Train a driver by evolution strategy.
   --checkpoint <path>  where to save the best driver (default checkpoints/<circuit>.json)
   --report <n>         print a line every n generations (default 10)
   --workers <n>        evaluation worker threads (default: one per core, minus one)
+  --save-every <n>     save every n generations even without improvement (default 5)
   --quiet              only print checkpoints and the final summary
   --no-resume          start from a fresh random draw instead of the checkpoint
   --list               list the available circuits and exit
@@ -79,6 +81,7 @@ const parseArgs = (argv: string[]): Options | null => {
     quiet: false,
     resume: true,
     workers: undefined,
+    saveEvery: 5,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -101,6 +104,7 @@ const parseArgs = (argv: string[]): Options | null => {
       case "--quiet": options.quiet = true; break;
       case "--no-resume": options.resume = false; break;
       case "--workers": options.workers = Number(next()); break;
+      case "--save-every": options.saveEvery = Math.max(1, Number(next())); break;
       case "--help": case "-h": console.log(USAGE); return null;
       case "--list":
         console.log("circuits:");
@@ -322,7 +326,7 @@ const main = async (): Promise<void> => {
       `seed ${options.seed}`,
   );
   say(`${PARAMETER_COUNT} parameters, ${formatClock(options.hours * 3600)} budget`);
-  say(`checkpointing to ${checkpointPath}\n`);
+  say(`checkpointing to ${checkpointPath} every ${options.saveEvery} generations\n`);
 
   /*
    * Spread the evaluations across the cores.
@@ -356,12 +360,31 @@ const main = async (): Promise<void> => {
     const report = await trainGeneration(state, track, { seconds: options.seconds }, undefined, pool);
     generations++;
 
-    if (report.bestEverFitness > best) {
+    const improved = report.bestEverFitness > best;
+    if (improved) {
       best = report.bestEverFitness;
       saveCheckpoint(checkpointPath, options, state.bestGeneration, best, state.best);
       if (options.quiet) {
         say(`  new best ${best.toFixed(1)} m/s at generation ${state.bestGeneration}, saved`);
       }
+    }
+
+    /*
+     * SAVE ON A SCHEDULE, NOT ONLY ON AN IMPROVEMENT.
+     *
+     * Waiting for a new best means a machine that dies mid-plateau loses everything since the last
+     * one — and a plateau can last thousands of generations, which is exactly what happened here. A
+     * run with a flat curve and no checkpoint for hours has nothing to show for the hours.
+     *
+     * The file is small and a write is a millisecond against a generation of two and a half seconds,
+     * so saving often costs nothing measurable. Saving every few generations bounds what a power cut
+     * or a closed laptop lid can destroy to a handful of seconds.
+     *
+     * This does NOT overwrite the elite with worse parameters: what is written is `state.best`, the
+     * best ever found, so frequent saving cannot make the checkpoint worse.
+     */
+    if (report.generation % options.saveEvery === 0) {
+      saveCheckpoint(checkpointPath, options, state.bestGeneration, state.bestFitness, state.best);
     }
 
     /*
