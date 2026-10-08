@@ -1359,6 +1359,7 @@ const setupSplitter = (): void => {
 
 setupSplitter();
 
+
 /**
  * The live sim state, exposed for measurement.
  *
@@ -1388,6 +1389,52 @@ let accumulator = 0;
 let lastTime = performance.now();
 /** Physics steps requested by hand, consumed one per frame. */
 let stepsQueued = 0;
+
+/**
+ * A complete copy of the state at the start line.
+ *
+ * Copied from the live car rather than written out field by field, so a field added to the car later
+ * is captured without anyone remembering to add it here. That is the whole point: the previous
+ * approach was a hand-written list and it was wrong twice.
+ */
+interface RewindSnapshot {
+  car: Record<string, unknown>;
+  applied: { throttle: number; brake: number; steer: number };
+  observation: ReturnType<typeof createObservation>;
+}
+let rewindSnapshot: RewindSnapshot | null = null;
+
+const captureRewindSnapshot = (): void => {
+  const copy: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(car)) {
+    // Typed arrays are copied, not aliased, or the snapshot would keep changing after it was taken.
+    copy[key] = ArrayBuffer.isView(value) ? (value as Float64Array).slice() : value;
+  }
+  rewindSnapshot = {
+    car: copy,
+    applied: { ...(driver ? driver.applied : aiControls) },
+    observation: { ...observation },
+  };
+};
+
+const restoreRewindSnapshot = (): void => {
+  const snapshot = rewindSnapshot;
+  if (!snapshot) return;
+  const target = car as unknown as Record<string, unknown>;
+  for (const [key, value] of Object.entries(snapshot.car)) {
+    target[key] = ArrayBuffer.isView(value) ? (value as Float64Array).slice() : value;
+  }
+  const controls = driver ? driver.applied : aiControls;
+  controls.throttle = snapshot.applied.throttle;
+  controls.brake = snapshot.applied.brake;
+  controls.steer = snapshot.applied.steer;
+  Object.assign(observation, snapshot.observation);
+
+  trail.length = 0;
+  sessionTime = 0;
+  lastProjectedS = 0;
+  timing = createTiming(track.length, SECTOR_COUNT);
+};
 
 /** Multiplier on simulated time. Zero means paused. */
 let playbackSpeed = 1;
@@ -1433,7 +1480,18 @@ const stepOnce = (): void => {
  * fast-forward of simulated time.
  */
 const fastForwardTo = (targetSeconds: number): void => {
-  resetToStart();
+  /*
+   * REWIND RESTORES A SNAPSHOT RATHER THAN CALLING THE RESET.
+   *
+   * The reset function is a list of assignments, and a list is only as complete as its author's
+   * memory: two pieces of state were missed and each produced a rewind that landed somewhere
+   * different every time. Chasing the third the same way would be more of the same.
+   *
+   * A snapshot cannot be incomplete, because it is taken from the live object rather than written
+   * out by hand. Whatever the car and its driver carry, the snapshot has it.
+   */
+  if (rewindSnapshot) restoreRewindSnapshot();
+  else resetToStart();
   const targetSteps = Math.round(targetSeconds / DT);
   /*
    * The trail is recorded during the replay, so it is cleared BEFORE the steps run rather than after
@@ -1510,3 +1568,11 @@ const frame = (now: number): void => {
 };
 
 requestAnimationFrame(frame);
+
+/*
+ * Captured once, at the end of initialisation, so the snapshot is taken from a fully built car and a
+ * loaded driver. Taking it inside `resetToStart` runs during startup, before the driver exists and
+ * before several bindings are initialised, which is a temporal dead zone error rather than a
+ * subtlety.
+ */
+captureRewindSnapshot();
