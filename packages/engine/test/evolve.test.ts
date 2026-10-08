@@ -144,3 +144,38 @@ test("evolve: the two public drivers are distinct", () => {
   assert.equal(bestDriver(state).genes.length, meanDriver(state).genes.length);
   assert.equal(PARAMETER_COUNT_CHECK, bestDriver(state).genes.length);
 });
+
+test("evolve: a trainer can resume from existing parameters", () => {
+  /*
+   * A thirteen-hour run is worth hours of progress by the time anything interrupts it, so being
+   * able to continue is what makes a long run safe. Without it a restart meant starting over,
+   * which is exactly what happened once already.
+   */
+  const track = buildCircuitByKey("club")!;
+  const first = createTrainer(31, { populationSize: 4 });
+  trainGeneration(first, track, SHORT);
+
+  // Resume from the parameters the first run reached.
+  const resumed = createTrainer(32, { populationSize: 4 }, first.mean.slice());
+  assert.deepEqual(
+    Array.from(resumed.mean),
+    Array.from(first.mean),
+    "a resumed trainer must start from exactly the parameters it was given",
+  );
+
+  // A resumed run must be usable immediately, not merely constructed.
+  const report = trainGeneration(resumed, track, SHORT);
+  assert.ok(Number.isFinite(report.meanFitness), "a resumed generation must produce a score");
+  assert.ok(resumed.bestFitness > -Infinity, "a resumed run must establish a best of its own");
+
+  /*
+   * A checkpoint from a different network shape must be REFUSED rather than truncated or padded.
+   * Silently accepting it would scatter the weights across the wrong layers and look like a
+   * driver that simply cannot drive.
+   */
+  assert.throws(
+    () => createTrainer(1, {}, new Float64Array(10)),
+    /resuming needs/,
+    "a parameter count mismatch must be rejected",
+  );
+});

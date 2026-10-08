@@ -13,7 +13,7 @@
  * interrupted run still yields the best driver it produced.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { CIRCUITS, buildCircuitByKey } from "../../engine/src/trackLibrary.ts";
 import { createTrainer, trainGeneration, bestDriver } from "../../engine/src/evolve.ts";
@@ -32,6 +32,7 @@ interface Options {
   checkpoint: string;
   reportEvery: number;
   quiet: boolean;
+  resume: boolean;
 }
 
 const USAGE = `
@@ -47,7 +48,11 @@ Train a driver by evolution strategy.
   --checkpoint <path>  where to save the best driver (default checkpoints/<circuit>.json)
   --report <n>         print a line every n generations (default 10)
   --quiet              only print checkpoints and the final summary
+  --no-resume          start from a fresh random draw instead of the checkpoint
   --list               list the available circuits and exit
+
+Resuming is the default when a checkpoint exists for the chosen circuit, because a long run is
+worth hours of progress by the time anything interrupts it.
 `;
 
 const parseArgs = (argv: string[]): Options | null => {
@@ -62,6 +67,7 @@ const parseArgs = (argv: string[]): Options | null => {
     checkpoint: "",
     reportEvery: 10,
     quiet: false,
+    resume: true,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -82,6 +88,7 @@ const parseArgs = (argv: string[]): Options | null => {
       case "--checkpoint": options.checkpoint = next(); break;
       case "--report": options.reportEvery = Number(next()); break;
       case "--quiet": options.quiet = true; break;
+      case "--no-resume": options.resume = false; break;
       case "--help": case "-h": console.log(USAGE); return null;
       case "--list":
         console.log("circuits:");
@@ -141,6 +148,50 @@ const say = (line: string): void => {
   process.stdout.write(`${line}\n`);
 };
 
+/**
+ * Reads a checkpoint to continue from, or explains why it cannot be used.
+ *
+ * The circuit and evaluation length are CHECKED rather than assumed. Parameters trained for
+ * ninety-second runs on the club circuit are not a valid starting point for another circuit, and
+ * silently continuing from them would look like a run that had suddenly got worse for no reason.
+ */
+interface Resumed {
+  genes: Float64Array;
+  generation: number;
+  fitness: number;
+}
+
+const readCheckpoint = (path: string, options: Options): Resumed | string => {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    return "no checkpoint yet";
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return "checkpoint is not valid JSON";
+  }
+  const record = parsed as Partial<Resumed> & { circuit?: string; seconds?: number; parameterCount?: number };
+  if (!Array.isArray(record.genes)) return "checkpoint has no genes";
+  if (record.circuit !== options.circuit) {
+    return `checkpoint is for ${record.circuit}, not ${options.circuit}`;
+  }
+  if (record.seconds !== options.seconds) {
+    return `checkpoint was trained with ${record.seconds} s evaluations, not ${options.seconds}`;
+  }
+  if (record.genes.length !== PARAMETER_COUNT) {
+    return `checkpoint has ${record.genes.length} parameters, this build needs ${PARAMETER_COUNT}`;
+  }
+  return {
+    genes: Float64Array.from(record.genes as number[]),
+    generation: record.generation ?? 0,
+    fitness: record.fitness ?? 0,
+  };
+};
+
 const formatClock = (seconds: number): string => {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -167,11 +218,42 @@ const main = (): void => {
   }
 
   const checkpointPath = resolve(options.checkpoint);
-  const state = createTrainer(options.seed, {
-    populationSize: options.population,
-    learningRate: options.learningRate,
-    sigma: options.sigma,
-  });
+
+  /*
+   * Resume by default when a checkpoint exists.
+   *
+   * A long run is worth hours of progress by the time anything interrupts it, so starting over
+   * silently would throw that away. `readCheckpoint` also validates that the checkpoint belongs
+   * to this circuit and this evaluation length, because parameters trained for one circuit are
+   * not a valid starting point for another and continuing from them would look like a run that
+   * had mysteriously got worse.
+   */
+  let initial: Float64Array | undefined;
+  let resumedGeneration = 0;
+  if (options.resume) {
+    const resumed = readCheckpoint(checkpointPath, options);
+    if (typeof resumed === "string") {
+      say(`starting fresh: ${resumed}`);
+    } else {
+      initial = resumed.genes;
+      resumedGeneration = resumed.generation;
+      say(
+        `resuming from generation ${resumed.generation}, whose recorded fitness was ` +
+          `${resumed.fitness.toFixed(0)}`,
+      );
+    }
+  }
+
+  const state = createTrainer(
+    options.seed,
+    {
+      populationSize: options.population,
+      learningRate: options.learningRate,
+      sigma: options.sigma,
+    },
+    initial,
+  );
+  state.generation = resumedGeneration;
 
   say(`training on ${track.name} (${track.length.toFixed(0)} m)`);
   say(

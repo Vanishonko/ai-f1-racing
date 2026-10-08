@@ -34,3 +34,7 @@ captures/
 # Trained drivers: produced by `train`, published by the build, not source.
 checkpoints/
 public/checkpoints/
+
+# Training logs and the running trainer's pid file.
+logs/*.log
+logs/*.pid

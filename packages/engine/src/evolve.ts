@@ -142,19 +142,46 @@ const createGaussian = (rng: Rng): (() => number) => {
   };
 };
 
+/**
+ * Starts a trainer, optionally from parameters that already exist.
+ *
+ * RESUMING MATTERS FOR LONG RUNS. A thirteen-hour run is worth five hours of progress by the
+ * time anything goes wrong, and without a way to continue, any interruption throws that away. An
+ * earlier version could only start from a fresh random draw, so a restart meant starting over.
+ *
+ * The Adam moments deliberately restart from zero. They are an exponentially weighted average of
+ * recent gradients, so they rebuild within a few generations, whereas carrying them across a
+ * restart would apply a stale step size to a search that has moved on.
+ */
 export const createTrainer = (
   seed: number,
   config: Partial<EvolutionConfig> = {},
+  initial?: Float64Array,
 ): TrainerState => {
+  if (initial && initial.length !== PARAMETER_COUNT) {
+    throw new Error(
+      `resuming needs ${PARAMETER_COUNT} parameters but was given ${initial.length}; ` +
+        `a checkpoint from a different network shape cannot be continued`,
+    );
+  }
   const rng = createRng(seed);
   const mean = new Float64Array(PARAMETER_COUNT);
-  const scale = 1 / Math.sqrt(PARAMETER_COUNT);
-  for (let i = 0; i < PARAMETER_COUNT; i++) mean[i] = rng.nextSigned() * scale;
+  if (initial) {
+    mean.set(initial);
+  } else {
+    const scale = 1 / Math.sqrt(PARAMETER_COUNT);
+    for (let i = 0; i < PARAMETER_COUNT; i++) mean[i] = rng.nextSigned() * scale;
+  }
 
   return {
     config: { ...DEFAULT_EVOLUTION, ...config },
     mean,
     best: mean.slice(),
+    /*
+     * A resumed run starts with its best unknown, so the first generation re-measures it. That
+     * is deliberate: it means the recorded elite is always produced by this process rather than
+     * inherited on trust from a file.
+     */
     bestFitness: -Infinity,
     bestGeneration: 0,
     moment1: new Float64Array(PARAMETER_COUNT),
