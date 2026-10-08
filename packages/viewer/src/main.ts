@@ -62,6 +62,11 @@ interface SimHandle {
   resetToStart: () => void;
   held: Set<string>;
   selectTrack: (key: string) => void;
+  /** The camera, so zoom and rotation can be inspected from outside. */
+  camera: { x: number; y: number; scale: number };
+  setZoom: (factor: number) => void;
+  setChaseRotation: (on: boolean) => void;
+  zoomState: () => { chaseZoom: number; overviewZoom: number; chaseRotates: boolean; rotation: number };
 }
 let simHandle: SimHandle | null = null;
 const car: CarState = createCarState();
@@ -170,8 +175,51 @@ resetToStart();
 window.addEventListener("keydown", (event: KeyboardEvent) => {
   held.add(event.key.toLowerCase());
   if (event.key === " ") event.preventDefault();
-  if (event.key.toLowerCase() === "r") resetToStart();
+
+  /*
+   * Camera keys are handled here rather than through `held`, because they are one-shot actions
+   * rather than continuous controls. A zoom that repeated while a key was held would run away.
+   */
+  switch (event.key) {
+    case "r":
+    case "R":
+      resetToStart();
+      break;
+    case "v":
+    case "V":
+      // Toggle whether the chase camera rotates to the car's heading.
+      chaseRotates = !chaseRotates;
+      break;
+    case "+":
+    case "=":
+      zoomBy(1.15);
+      break;
+    case "-":
+    case "_":
+      zoomBy(1 / 1.15);
+      break;
+    case "0":
+      chaseZoom = 1;
+      overviewZoom = 1;
+      break;
+    default:
+      break;
+  }
 });
+
+/*
+ * The wheel zooms. Bound to the canvas rather than the window so the page can still be scrolled
+ * when the pointer is over the panels.
+ */
+canvas.addEventListener(
+  "wheel",
+  (event: WheelEvent) => {
+    event.preventDefault();
+    // Exponential, so each notch is the same proportional change however far in or out you are.
+    zoomBy(event.deltaY < 0 ? 1.12 : 1 / 1.12);
+  },
+  { passive: false },
+);
 window.addEventListener("keyup", (event: KeyboardEvent) => held.delete(event.key.toLowerCase()));
 window.addEventListener("blur", () => held.clear());
 
@@ -345,6 +393,41 @@ const drawFitnessSpark = (): void => {
   ctx2.stroke();
 };
 
+/**
+ * Loads the elite from the running trainer and restarts the lap with it.
+ *
+ * WHY A BUTTON RATHER THAN AUTOMATIC. The panel already swaps the driver when the elite changes,
+ * which is right for watching a run progress. But when a new best appears the car is usually
+ * mid-corner, so the change takes effect from wherever it happened to be — which makes it
+ * impossible to compare one generation's line against another's. This restarts from the same point
+ * with the current elite, so two generations can be watched back to back from an identical start.
+ *
+ * The status file already carries the elite's parameters, so there is nothing to fetch beyond what
+ * the panel is already polling.
+ */
+const replayLatestElite = (): void => {
+  const status = trainingStatus;
+  const label = document.getElementById("replay-gen");
+  if (!status || !Array.isArray(status.genes) || status.genes.length !== PARAMETER_COUNT) {
+    if (label) label.textContent = "no run in progress";
+    return;
+  }
+  driver = createDriver(Float64Array.from(status.genes), () => 0);
+  driverInfo = {
+    generation: status.bestGeneration,
+    fitness: status.bestFitness,
+    trainedSeconds: 0,
+    circuit: status.circuit,
+  };
+  const toggle = document.getElementById("ai-drive") as HTMLInputElement | null;
+  if (toggle) {
+    toggle.checked = true;
+    aiDriving = true;
+  }
+  resetToStart();
+  updateDriverPanel();
+};
+
 /** Writes the training panel. */
 const updateTrainingPanel = (): void => {
   const field = (id: string, value: string): void => {
@@ -366,6 +449,8 @@ const updateTrainingPanel = (): void => {
   field("train-best", `${(t.bestFitness * 3.6).toFixed(1)} km/h avg`);
   field("train-mean", `${t.meanDistance.toFixed(0)} m, ${(t.meanOnTrack * 100).toFixed(0)}% on track`);
   field("train-warn", t.warning ? `WARNING: ${t.warning}` : "");
+  const replay = document.getElementById("replay-gen");
+  if (replay) replay.textContent = `replay generation ${t.bestGeneration}`;
   drawFitnessSpark();
 };
 
@@ -489,8 +574,22 @@ const setupDriverToggle = (): void => {
   });
 };
 
+/**
+ * The replay button is wired once. The trainer's status is read from the panel's own poll, so the
+ * button never fetches anything itself and cannot show a different generation from the one on
+ * screen.
+ */
+const setupReplayButton = (): void => {
+  const button = document.getElementById("replay");
+  if (!button) return;
+  button.addEventListener("click", replayLatestElite);
+  const label = document.getElementById("replay-gen");
+  if (label) label.textContent = "no run in progress";
+};
+
 setupTrackSelector();
 setupDriverToggle();
+setupReplayButton();
 void fetchDriverFor(DEFAULT_TRACK_KEY);
 
 /*
@@ -500,10 +599,6 @@ void fetchDriverFor(DEFAULT_TRACK_KEY);
 void pollTraining(DEFAULT_TRACK_KEY);
 setInterval(() => { void pollTraining(currentCircuitKey()); }, 500);
 
-simHandle = {
-  car, track, params, stepContext, resetToStart, held, selectTrack,
-};
-(window as unknown as { sim: SimHandle }).sim = simHandle;
 
 // ---------------------------------------------------------------------------
 // Tire smoke
@@ -590,7 +685,13 @@ const drawSmoke = (): void => {
     const radius = smoke.size[i]! * (0.6 + t * 2.4) * camera.scale * 0.5;
     const alpha = (1 - t) * 0.35;
     ctx.beginPath();
-    ctx.arc(toScreenX(smoke.x[i]!), toScreenY(smoke.y[i]!), Math.max(1, radius), 0, Math.PI * 2);
+    ctx.arc(
+      toScreenX(smoke.x[i]!, smoke.y[i]!),
+      toScreenY(smoke.x[i]!, smoke.y[i]!),
+      Math.max(1, radius),
+      0,
+      Math.PI * 2,
+    );
     ctx.fillStyle = `rgba(214,220,228,${alpha.toFixed(3)})`;
     ctx.fill();
   }
@@ -602,15 +703,66 @@ const drawSmoke = (): void => {
 let camera = { x: 0, y: 0, scale: 1 };
 const followToggle = document.getElementById("follow") as HTMLInputElement;
 
+/**
+ * Whether the chase camera rotates to the car's heading.
+ *
+ * Two different views share the name "chase": one that tracks the car while staying upright, and
+ * one rotated behind it. The first is better for reading the racing line, the second for watching
+ * the car rotate and the rear end slide, so both are available and toggled with `R`.
+ */
+let chaseRotates = false;
+
+/**
+ * Zoom multiplier for the chase view, driven by the wheel and the `+`/`-` keys.
+ *
+ * Clamped to a range that stays useful rather than merely finite: below a third of the default the
+ * car is a few pixels across, and above three and a half times the screen is filled with tire.
+ */
+const CHASE_ZOOM_MIN = 0.35;
+const CHASE_ZOOM_MAX = 3.5;
+let chaseZoom = 1;
+
+/** Zoom multiplier for the whole-circuit view, so the overview can be framed by hand too. */
+const OVERVIEW_ZOOM_MIN = 0.4;
+const OVERVIEW_ZOOM_MAX = 4;
+let overviewZoom = 1;
+
+const zoomBy = (factor: number): void => {
+  if (followToggle.checked) {
+    chaseZoom = clampTo(chaseZoom * factor, CHASE_ZOOM_MIN, CHASE_ZOOM_MAX);
+  } else {
+    overviewZoom = clampTo(overviewZoom * factor, OVERVIEW_ZOOM_MIN, OVERVIEW_ZOOM_MAX);
+  }
+};
+
+const clampTo = (value: number, low: number, high: number): number =>
+  value < low ? low : value > high ? high : value;
+
+/**
+ * Camera rotation in radians, applied about the point the camera is centred on.
+ *
+ * Sign convention matches the simulation: yaw, steering and heading are all positive
+ * counter-clockwise, and the screen's y axis points down, so a positive rotation here turns the
+ * world clockwise on screen. Deriving it from the car's heading with this sign makes "forward"
+ * point up the screen.
+ */
+let cameraRotation = 0;
+
+/** Sine and cosine of the camera rotation, recomputed whenever the camera moves. */
+let camCos = 1;
+let camSin = 0;
+
 const updateCamera = (): void => {
   const canvasAspect = canvas.width / canvas.height;
   const margin = 1.25;
 
   if (followToggle.checked) {
     // Chase camera: locked to the car, zoomed in enough to see the tires work.
-    camera.scale = Math.min(canvas.width, canvas.height) / 90;
+    camera.scale = (Math.min(canvas.width, canvas.height) / 90) * chaseZoom;
     camera.x = car.x;
     camera.y = car.y;
+    // Only the chase view rotates. A rotated circuit is harder to read than an upright one.
+    cameraRotation = chaseRotates ? car.heading : 0;
   } else {
     // Fit the whole circuit.
     let minX = Infinity;
@@ -625,15 +777,60 @@ const updateCamera = (): void => {
     }
     const spanX = (maxX - minX) * margin;
     const spanY = (maxY - minY) * margin;
-    camera.scale = Math.min(canvas.width / spanX, canvas.height / (spanY * canvasAspect) * canvasAspect);
-    camera.scale = Math.min(canvas.width / spanX, canvas.height / spanY);
+    camera.scale = Math.min(canvas.width / spanX, canvas.height / spanY) * overviewZoom;
     camera.x = (minX + maxX) / 2;
     camera.y = (minY + maxY) / 2;
+    cameraRotation = 0;
+    void canvasAspect;
+  }
+
+  // Computed once per frame rather than per point: the transforms below run for every track sample
+  // and every smoke particle, so a trigonometry call inside them would dominate the frame.
+  const rotation = cameraRotation;
+  if (rotation === 0) {
+    camCos = 1;
+    camSin = 0;
+  } else {
+    camCos = Math.cos(rotation);
+    camSin = Math.sin(rotation);
   }
 };
 
-const toScreenX = (x: number): number => (x - camera.x) * camera.scale + canvas.width / 2;
-const toScreenY = (y: number): number => canvas.height / 2 - (y - camera.y) * camera.scale;
+/*
+ * World to screen, with the camera's rotation applied about its centre.
+ *
+ * Written as a rotation matrix rather than as an angle so there is no `atan2` and no trigonometry
+ * outside `updateCamera`, which keeps this on the right side of the determinism contract that the
+ * engine follows — the viewer is not held to it, but a shared convention is worth more than a
+ * local exception.
+ *
+ * The y axis flip is why the cross terms look swapped: world y increases upward and screen y
+ * increases downward.
+ */
+simHandle = {
+  car, track, params, stepContext, resetToStart, held, selectTrack,
+  /*
+   * The camera is on the handle so it can be inspected and driven from outside. Zoom and rotation
+   * are things you check by looking at the screen, and "does the wheel change the scale" is not a
+   * question a screenshot answers on its own.
+   */
+  camera,
+  setZoom: (factor: number) => zoomBy(factor),
+  setChaseRotation: (on: boolean) => { chaseRotates = on; },
+  zoomState: () => ({ chaseZoom, overviewZoom, chaseRotates, rotation: cameraRotation }),
+};
+(window as unknown as { sim: SimHandle }).sim = simHandle;
+
+const toScreenX = (x: number, y: number): number => {
+  const dx = (x - camera.x) * camera.scale;
+  const dy = (y - camera.y) * camera.scale;
+  return dx * camCos - dy * camSin + canvas.width / 2;
+};
+const toScreenY = (x: number, y: number): number => {
+  const dx = (x - camera.x) * camera.scale;
+  const dy = (y - camera.y) * camera.scale;
+  return canvas.height / 2 - (dx * camSin + dy * camCos);
+};
 
 // ---------------------------------------------------------------------------
 // Rendering
@@ -671,8 +868,10 @@ const drawTrack = (): void => {
     for (let i = 0; i < track.xs.length; i++) {
       const nx = -track.ty[i]! * track.halfWidth * side;
       const ny = track.tx[i]! * track.halfWidth * side;
-      const sx = toScreenX(track.xs[i]! + nx);
-      const sy = toScreenY(track.ys[i]! + ny);
+      const px = track.xs[i]! + nx;
+      const py = track.ys[i]! + ny;
+      const sx = toScreenX(px, py);
+      const sy = toScreenY(px, py);
       if (i === 0) ctx.moveTo(sx, sy);
       else ctx.lineTo(sx, sy);
     }
@@ -687,16 +886,16 @@ const drawTrack = (): void => {
   ctx.strokeStyle = "#e6edf3";
   ctx.lineWidth = Math.max(2, 0.5 * camera.scale);
   ctx.beginPath();
-  ctx.moveTo(toScreenX(start.x + nx), toScreenY(start.y + ny));
-  ctx.lineTo(toScreenX(start.x - nx), toScreenY(start.y - ny));
+  ctx.moveTo(toScreenX(start.x + nx, start.y + ny), toScreenY(start.x + nx, start.y + ny));
+  ctx.lineTo(toScreenX(start.x - nx, start.y - ny), toScreenY(start.x - nx, start.y - ny));
   ctx.stroke();
 };
 
 const strokeCentreline = (): void => {
   ctx.beginPath();
   for (let i = 0; i < track.xs.length; i++) {
-    const sx = toScreenX(track.xs[i]!);
-    const sy = toScreenY(track.ys[i]!);
+    const sx = toScreenX(track.xs[i]!, track.ys[i]!);
+    const sy = toScreenY(track.xs[i]!, track.ys[i]!);
     if (i === 0) ctx.moveTo(sx, sy);
     else ctx.lineTo(sx, sy);
   }
@@ -711,8 +910,11 @@ const drawTrail = (): void => {
     const alpha = i / trail.length;
     ctx.strokeStyle = `rgba(91,157,255,${(alpha * 0.5).toFixed(3)})`;
     ctx.beginPath();
-    ctx.moveTo(toScreenX(trail[i - 1]!.x), toScreenY(trail[i - 1]!.y));
-    ctx.lineTo(toScreenX(trail[i]!.x), toScreenY(trail[i]!.y));
+    ctx.moveTo(
+      toScreenX(trail[i - 1]!.x, trail[i - 1]!.y),
+      toScreenY(trail[i - 1]!.x, trail[i - 1]!.y),
+    );
+    ctx.lineTo(toScreenX(trail[i]!.x, trail[i]!.y), toScreenY(trail[i]!.x, trail[i]!.y));
     ctx.stroke();
   }
 };
@@ -757,7 +959,7 @@ const drawGripRings = (): void => {
 
     const radius = Math.max(3, Math.sqrt(load) * 0.055 * camera.scale);
     ctx.beginPath();
-    ctx.arc(toScreenX(wx), toScreenY(wy), radius, 0, Math.PI * 2);
+    ctx.arc(toScreenX(wx, wy), toScreenY(wx, wy), radius, 0, Math.PI * 2);
     ctx.strokeStyle = used > 0.99 ? "#ff3b30" : used > 0.9 ? "#ffb340" : "#3ddc84";
     ctx.lineWidth = Math.max(1.5, 0.3 * camera.scale);
     ctx.stroke();
@@ -817,10 +1019,10 @@ const drawForceVectors = (): void => {
     const fyWorld = fxBody * sin + fyBody * cos;
 
     const [wx, wy] = contacts[w]!;
-    const x0 = toScreenX(wx);
-    const y0 = toScreenY(wy);
-    const x1 = toScreenX(wx + fxWorld * newtonScale);
-    const y1 = toScreenY(wy + fyWorld * newtonScale);
+    const x0 = toScreenX(wx, wy);
+    const y0 = toScreenY(wx, wy);
+    const x1 = toScreenX(wx + fxWorld * newtonScale, wy + fyWorld * newtonScale);
+    const y1 = toScreenY(wx + fxWorld * newtonScale, wy + fyWorld * newtonScale);
 
     const length = Math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2);
     if (length < 3) continue;
@@ -850,7 +1052,7 @@ const drawCar = (): void => {
   const bodyWidth = params.trackFront * camera.scale;
 
   ctx.save();
-  ctx.translate(toScreenX(car.x), toScreenY(car.y));
+  ctx.translate(toScreenX(car.x, car.y), toScreenY(car.x, car.y));
   ctx.rotate(-car.heading);
 
   // Chassis.
