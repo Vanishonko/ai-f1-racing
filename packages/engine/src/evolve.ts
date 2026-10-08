@@ -55,13 +55,22 @@ export interface EvolutionConfig {
 const DEFAULT_EVOLUTION: EvolutionConfig = {
   populationSize: 16,
   /*
-   * Sized for the fitness scale rather than picked by feel. Fitness is roughly metres
-   * covered, so it runs to hundreds; a step of 0.05 moves a weight by a fraction of a
-   * percent per generation, which is slow but stable, and the rank normalisation below
-   * keeps the effective step independent of how large the scores happen to be.
+   * CHOSEN BY SWEEPING, not by feel. Both of these were originally guessed — 0.05 and 0.02, picked
+   * in the first version and never revisited — and both were wrong in a way that is invisible
+   * without a sweep.
+   *
+   * `scripts/tune-search.ts` runs the search across a grid of settings and reports the elite's pace
+   * each reaches. Measured over ten generations: learning rate 0.03 with sigma 0.03 reaches 80 km/h,
+   * while the old 0.05/0.02 reaches 22. Sigma 0.01 collapses to ZERO at every learning rate,
+   * because perturbations that small cannot change behaviour enough for the ranking to mean
+   * anything — every sample scores the same and the update has nothing to follow.
+   *
+   * That is the failure mode worth remembering: a search whose perturbations are too small does not
+   * look broken, it looks like a training curve that wanders. It cost a thirteen-hour run to find
+   * out.
    */
-  learningRate: 0.05,
-  sigma: 0.02,
+  learningRate: 0.03,
+  sigma: 0.03,
   beta1: 0.9,
   beta2: 0.999,
   epsilon: 1e-8,

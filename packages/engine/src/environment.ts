@@ -208,7 +208,7 @@ const FITNESS_WEIGHTS = {
    * merely contributing to it. Below this floor the fitness collapses towards zero, which
    * makes the floor itself the thing to climb.
    */
-  onTrackFloor: 0.6,
+  onTrackWeight: 3,
 } as const;
 
 /**
@@ -375,7 +375,11 @@ export const runPolicy = (
    * gradually. The floor itself becomes the thing to climb, which is the ordering a racing
    * objective needs: drive the circuit first, then drive it quickly.
    */
-  const gate = onTrackFraction < w.onTrackFloor ? 0.05 : 0.5 + onTrackFraction;
+  /*
+   * The gate is smooth and always increasing, so a driver that is off the circuit can always
+   * improve by coming back towards it. See `onTrackWeight` for why a floor was worse than useless.
+   */
+  const gate = w.onTrackWeight * onTrackFraction * onTrackFraction;
   const averageSpeed = seconds > 0 ? distance / seconds : 0;
   // Steering work per metre covered, so a longer run does not pay more for the same habit.
   const steeringWorkPerMetre = distance > 1 ? (steeringWork / distance) * 100 : 0;
