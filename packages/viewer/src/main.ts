@@ -25,7 +25,8 @@ import {
   type StepContext,
 } from "../../engine/src/car.ts";
 import { buildHandTrack, HAND_TRACKS, DEFAULT_TRACK_KEY } from "../../engine/src/trackLibrary.ts";
-import { projectToTrack, pointAtDistance, type Track } from "../../engine/src/track.ts";
+import { projectToTrack, projectToTrackNear, pointAtDistance, type Track } from "../../engine/src/track.ts";
+import { createTiming, updateTiming, formatTime, type TimingState } from "../../engine/src/timing.ts";
 import { gripNoiseAt } from "../../engine/src/rng.ts";
 import { tireForces } from "../../engine/src/tire.ts";
 
@@ -72,6 +73,21 @@ const trail: Array<{ x: number; y: number }> = [];
 /** Keys currently held, so throttle and steering can ramp like real inputs. */
 const held = new Set<string>();
 
+/** Real F1 splits the lap into three sectors, and so does this. */
+const SECTOR_COUNT = 3;
+
+/**
+ * Sector and lap timing.
+ *
+ * Distance comes from projecting the car onto the centreline each step rather than
+ * from a counter the car maintains. The physics core is kept free of any notion of
+ * laps or sectors so it stays replayable and testable, and the projection is already
+ * the authoritative answer to "where on the track is this car".
+ */
+let timing = createTiming(track.length, SECTOR_COUNT);
+let sessionTime = 0;
+let lastProjectedS = 0;
+
 const resetToStart = (): void => {
   const point = pointAtDistance(track, 0);
   car.x = point.x;
@@ -85,7 +101,8 @@ const resetToStart = (): void => {
   car.steerCommand = 0;
   car.throttle = 0;
   car.brake = 0;
-  car.gear = 0;
+  // First gear, not neutral: gear index 0 is the first ratio.
+  car.gear = 1;
   car.rpm = params.engine.idleRpm;
   car.wear.fill(0);
   car.frontLockTime = 0;
@@ -93,6 +110,42 @@ const resetToStart = (): void => {
   car.saturatedTime = 0;
   car.distance = 0;
   trail.length = 0;
+  sessionTime = 0;
+  timing = createTiming(track.length, SECTOR_COUNT);
+};
+
+/**
+ * Writes the lap and sector panel.
+ *
+ * Colours follow the convention the sport uses, so the panel reads at a glance:
+ * purple for a session best in that sector, green for a personal best, and the default
+ * colour otherwise. Showing the best time per sector makes it obvious where a lap is
+ * being won or lost rather than only reporting the total.
+ */
+const updateTimingPanel = (): void => {
+  const setText = (id: string, value: string): void => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  };
+  const setClass = (id: string, cls: string): void => {
+    const el = document.getElementById(id);
+    if (el) el.className = cls;
+  };
+
+  setText("lapCount", `${timing.laps}`);
+  setText("lastLap", formatTime(timing.lastLap ? timing.lastLap.time : null));
+  setText("bestLap", formatTime(timing.bestLap));
+  setText("sectorNow", `${Math.min(timing.sectorsDone + 1, SECTOR_COUNT)} / ${SECTOR_COUNT}`);
+
+  const last = timing.lastLap?.sectors ?? [];
+  for (let i = 0; i < SECTOR_COUNT; i++) {
+    const done = last[i];
+    const isLast = i === last.length - 1 && done !== undefined;
+    setText(`s${i + 1}`, done === undefined ? "--.---" : done.toFixed(3));
+    setClass(`s${i + 1}`, isLast && timing.lastGrade === "purple" ? "purple"
+      : isLast && timing.lastGrade === "personal" ? "personal" : "");
+    setText(`b${i + 1}`, timing.sectorBests[i] === null ? "--.---" : timing.sectorBests[i]!.toFixed(3));
+  }
 };
 
 /**
@@ -679,6 +732,19 @@ const frame = (now: number): void => {
     readInputs();
     stepContext.gripNoise = gripNoiseAt(car.distance, track.length);
     stepCar(car, params, DT, stepContext);
+
+    // Advance the lap distance from the car's actual position, handling the wrap at
+    // the start/finish line so the accumulated distance is monotonic.
+    const projection = projectToTrackNear(track, car.x, car.y, lastProjectedS, 60);
+    const step = projection.s - lastProjectedS;
+    if (step < -track.length / 2) car.distance += step + track.length;
+    else if (step > track.length / 2) car.distance += step - track.length;
+    else car.distance += step;
+    lastProjectedS = projection.s;
+
+    sessionTime += DT;
+    updateTiming(timing, car.distance, sessionTime);
+
     accumulator -= DT;
     steps++;
   }
@@ -691,6 +757,7 @@ const frame = (now: number): void => {
   trail.push({ x: car.x, y: car.y });
   if (trail.length > TRAIL_LENGTH) trail.shift();
 
+  updateTimingPanel();
   updateCamera();
   ctx.fillStyle = REDRAW.sky;
   ctx.fillRect(0, 0, canvas.width, canvas.height);

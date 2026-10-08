@@ -398,3 +398,62 @@ never be able to break that, so the engine has no idea this exists.
 pnpm test                  # 11 tests
 pnpm run lint:determinism  # sim core must contain no forbidden math
 ```
+
+
+## Status after the physics fix, sector timing, and the circuit rebuild
+
+### The car no longer drives itself
+
+With throttle and brake both at zero the car used to accelerate BACKWARDS, reaching 4 m
+of reverse travel in eight seconds. Three faults combined: `rpmFor` clamped its output
+to idle so the wheel-derived engine speed read a constant 1800 rpm at a standstill and
+the clutch thought the car was rolling; the engine's idle torque reached the road
+through the gearbox; and engine braking could push a stationary car backwards. All
+three are fixed, with a clutch engagement model added because that is the mechanism
+real cars use. A regression test now pins both halves — the car must stand still for
+20 s AND still pull away at 30% throttle.
+
+Measured now: 0-100 km/h in 4.37 s, 0-200 in 8.03 s, 307 km/h top speed, 104.5 m to
+stop from 200 km/h, and exactly 0 m of travel from rest with no controls.
+
+### Sector timing, with purple sectors
+
+`timing.ts` measures sectors from DISTANCE TRAVELLED, not position. Distance is
+monotonic and already handles the start/finish wrap, so timing needs no geometry of its
+own and cannot disagree with the track about where the car is. The viewer derives that
+distance by projecting the car onto the centreline each physics step, which keeps the
+physics core free of any notion of laps so it stays replayable and testable.
+
+Showing the best time per sector makes it obvious where a lap is being won or lost,
+which the total alone does not. Purple is a session best, green a personal best. The
+bests live in the timing state rather than on a car, so a field can share one table —
+that is what makes a purple sector mean something with several cars on track.
+
+Six tests cover it, including the case that matters most: a step can cross two sector
+boundaries at once when the car is quick and the tick is long, and a version that tested
+only where the car ENDED UP dropped the boundaries it stepped over, producing laps with
+missing sectors.
+
+### The circuit set
+
+| circuit | length | corners | speed range | overtaking zones |
+|---|---|---|---|---|
+| Spa-Francorchamps | 7013 m | 27 | 54-210 km/h | 9 |
+| Baku City | 6007 m | 19 | 59-209 km/h | 8 |
+| Chicane | 5445 m | 17 | 53-206 km/h | 5 |
+| Club Circuit | 3521 m | 14 | 58-201 km/h | 4 |
+
+Spa and Baku are traced from real circuit diagrams and are correct to within about
+0.1 per cent of the real lap lengths. Chicane and Club are hand-authored.
+
+The Chicane was rebuilt from a radius profile after measuring why it was pinched: the
+previous ring bunched waypoints 6 to 12 degrees apart and changed radius sharply
+between them, and a spline through a short, sharply-turning chord develops a far tighter
+radius than either endpoint — a 13 m corner appeared in a section whose waypoint radii
+were all between 600 and 700 m. Even spacing fixes it, because then the local curvature
+is set by how fast the radius changes with angle, which is controllable directly.
+
+### What is next
+
+The trainer. The environment is now good enough to race on, which was the whole point of
+doing the tracks first.
