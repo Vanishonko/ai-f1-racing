@@ -35,9 +35,8 @@ import {
   type TrackControlPoints,
 } from "./track.ts";
 import { roundCorners } from "./fillet.ts";
-import { corner, solveDesign, type DesignSpec } from "./trackDesign.ts";
-import { buildDesignedTrack } from "./trackRecipes.ts";
 import { SPA_FRANCORCHAMPS } from "./spaFrancorchamps.ts";
+import { BAKU_CITY } from "./bakuCity.ts";
 
 /**
  * A generous oval: two long straights joined by sweeping constant-radius turns.
@@ -188,62 +187,41 @@ const SPA_SPEC: TrackControlPoints = {
 };
 
 /*
- * BAKU, a street circuit: almost nothing but long straights joined by tight
- * 90-degree corners. Every corner is between 72 and 150 km/h and there are seven
- * straights of 593-963 m, so passing is done with the slipstream and a late lunge
- * rather than with flowing corners.
- *
- * Replaces "Hairpin", which had a hairpin but only five corners and no long
- * straight section, so it had the shape of a circuit without the traffic.
+ * BAKU CITY, traced from the real street circuit. See `bakuCity.ts` for the method
+ * and for why the generated version was a heptagon.
  */
-const BAKU_DESIGN: DesignSpec = {
-  name: "Baku City",
+const BAKU_SPEC: TrackControlPoints = {
   halfWidth: 9,
-  corners: [30, 60, 45, 45, 45, 60, 75].map((a, i) => corner(a, [150, 125, 72, 72, 125, 88, 105][i]!)),
-  preferredStraights: [869, 775, 593, 716, 777, 798, 963],
+  points: BAKU_CITY.map(([x, y]) => [x, y] as [number, number]),
 };
 
 export interface NamedTrack {
   key: string;
   name: string;
-  /** A hand-placed circuit, or null when this entry is a solved design. */
-  spec: TrackControlPoints | null;
-  /** A design solved at build time, or null when this entry is hand-placed. */
-  design: DesignSpec | null;
+  /** Control points for the circuit. */
+  spec: TrackControlPoints;
 }
 
 export const HAND_TRACKS: ReadonlyArray<NamedTrack> = [
-  { key: "spa", name: "Spa-Francorchamps", spec: SPA_SPEC, design: null },
-  { key: "baku", name: "Baku City", spec: null, design: BAKU_DESIGN },
-  { key: "chicane", name: "Chicane", spec: CHICANE, design: null },
-  { key: "club", name: "Club Circuit", spec: CLUB, design: null },
+  { key: "spa", name: "Spa-Francorchamps", spec: SPA_SPEC },
+  { key: "baku", name: "Baku City", spec: BAKU_SPEC },
+  { key: "chicane", name: "Chicane", spec: CHICANE },
+  { key: "club", name: "Club Circuit", spec: CLUB },
 ];
 
 /**
  * Builds one named circuit.
  *
- * Two kinds of entry coexist deliberately. The solved designs are the newer and
- * better ones; the hand-placed circuits are kept because they are validated and
- * because one of them is the most varied layout in the set.
+ * Every circuit is now control points — either traced from a real circuit's diagram
+ * or laid out by hand — rather than a solved set of turn angles. See the notes on
+ * `SPA_SPEC` and `BAKU_SPEC` for why: an angle solve with one consistent turn
+ * direction can only produce a convex polygon.
  */
-export const buildNamedTrack = (entry: NamedTrack): Track | null => {
-  if (entry.design) {
-    const solved = solveDesign(entry.design);
-    return solved ? buildDesignedTrack(solved) : null;
-  }
-  return entry.spec ? buildTrack(entry.spec, entry.name) : null;
-};
+export const buildNamedTrack = (entry: NamedTrack): Track =>
+  buildTrack(entry.spec, entry.name);
 
 /** Builds every circuit. Throws if one is degenerate. */
-export const buildHandTracks = (): Track[] => {
-  const built: Track[] = [];
-  for (const entry of HAND_TRACKS) {
-    const track = buildNamedTrack(entry);
-    if (!track) throw new Error(`circuit failed to build: ${entry.name}`);
-    built.push(track);
-  }
-  return built;
-};
+export const buildHandTracks = (): Track[] => HAND_TRACKS.map(buildNamedTrack);
 
 export const buildHandTrack = (key: string): Track | null => {
   const found = HAND_TRACKS.find((t) => t.key === key);
