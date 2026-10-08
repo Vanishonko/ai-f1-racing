@@ -21,8 +21,21 @@
     font: 13px/1.45 ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
     display: grid; grid-template-columns: 1fr 300px; height: 100vh; overflow: hidden;
   }
-  #stage { position: relative; overflow: hidden; }
+  #stage { position: relative; overflow: hidden; min-width: 0; }
   canvas { display: block; width: 100%; height: 100%; }
+  /*
+   * The panel is a column in the grid, so the stage fills whatever is left. The splitter gives it a
+   * draggable edge, which matters because the useful split depends on what you are doing: watching a
+   * racing line wants the whole screen, reading telemetry wants the panel wide.
+   */
+  #splitter {
+    cursor: col-resize; background: var(--line); user-select: none;
+  }
+  #splitter:hover, #splitter.dragging { background: #b57bff; }
+  /* Collapsed: the stage takes the entire window. */
+  body.panel-hidden { grid-template-columns: 1fr 0 0 !important; }
+  body.panel-hidden aside { display: none; }
+  body.panel-hidden #splitter { background: var(--line); }
   aside {
     background: var(--panel); border-left: 1px solid var(--line);
     padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px;
@@ -72,6 +85,8 @@
 </head>
 <body>
   <div id="stage"><canvas id="view"></canvas></div>
+  <!-- Dragged to resize the panel; see the resize wiring at the end of the body. -->
+  <div id="splitter" title="drag to resize the panel, double-click to collapse"></div>
   <aside>
     <h1>Circuit</h1>
     <select id="trackSelect"></select>
@@ -113,6 +128,7 @@
       <div class="row"><span>trained to gen</span><span id="ai-gen">--</span></div>
       <div class="row"><span>its fitness</span><span id="ai-fitness">--</span></div>
       <div class="row"><span>eval length</span><span id="ai-trained">--</span></div>
+      <div class="row"><span>playback</span><span id="playback">1x</span></div>
 
       <h2>Timing</h2>
       <div class="row"><span>lap</span><span id="lapCount">0</span></div>
@@ -150,6 +166,11 @@
         <kbd>V</kbd><span class="hint">chase camera: rotate behind the car, or stay upright</span>
         <kbd>+ -</kbd><span class="hint">zoom the camera (the wheel works too)</span>
         <kbd>0</kbd><span class="hint">reset the zoom</span>
+        <kbd>H</kbd><span class="hint">hide the panel, canvas fills the window</span>
+        <kbd>P</kbd><span class="hint">pause / resume</span>
+        <kbd>J L</kbd><span class="hint">back / forward 5 seconds (replayed, exact)</span>
+        <kbd>, .</kbd><span class="hint">one frame back / forward</span>
+        <kbd>[ ]</kbd><span class="hint">slower / faster, up to 16x</span>
       </div>
       <p class="hint">
         Hit a corner hard on the brakes and watch the front lock counter climb:

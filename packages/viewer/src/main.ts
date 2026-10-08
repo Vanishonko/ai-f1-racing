@@ -67,6 +67,11 @@ interface SimHandle {
   setZoom: (factor: number) => void;
   setChaseRotation: (on: boolean) => void;
   zoomState: () => { chaseZoom: number; overviewZoom: number; chaseRotates: boolean; rotation: number };
+  setPlayback: (speed: number) => void;
+  playback: () => number;
+  sessionSeconds: () => number;
+  seek: (seconds: number) => void;
+  stepFrame: () => void;
 }
 let simHandle: SimHandle | null = null;
 const car: CarState = createCarState();
@@ -95,6 +100,34 @@ let timing = createTiming(track.length, SECTOR_COUNT);
 let sessionTime = 0;
 let lastProjectedS = 0;
 
+/*
+ * DRIVER STATE, declared before the reset that clears it.
+ *
+ * `resetToStart` calls into these, so they must exist by the time it can run. An earlier version had
+ * them further down the file, which is a temporal dead zone error the moment the reset is called
+ * rather than a subtlety — the page failed to load at all.
+ */
+let driver: Driver | null = null;
+
+/**
+ * What the loaded checkpoint was, so the panel can say which driver is driving.
+ *
+ * A generation number is the only way to tell two checkpoints apart at a glance, and without it there
+ * is no way to know whether the thing on screen is the run you just finished or one from an hour ago.
+ */
+interface DriverInfo {
+  generation: number;
+  fitness: number;
+  trainedSeconds: number;
+  circuit: string;
+}
+let driverInfo: DriverInfo | null = null;
+const observation = createObservation();
+const aiControls = { throttle: 0, brake: 0, steer: 0 };
+
+/** True when the AI is driving rather than the keyboard. */
+let aiDriving = false;
+
 const resetToStart = (): void => {
   const point = pointAtDistance(track, 0);
   car.x = point.x;
@@ -118,7 +151,48 @@ const resetToStart = (): void => {
   car.distance = 0;
   trail.length = 0;
   sessionTime = 0;
+  /*
+   * `lastProjectedS` MUST be reset with everything else.
+   *
+   * It is the reference the lap-distance projection measures against, so leaving it at wherever the
+   * car happened to be makes the next step compute a gap from the wrong place. The symptom was
+   * specific and only showed up on the SECOND rewind: replaying to five seconds gave 348 m the first
+   * time and 0 m the second, because the stale reference made the projection think the car had
+   * wrapped past the start line. A state variable that is read every step has to be reset with the
+   * rest, and this one was missed because nothing else in the reset resets it.
+   */
+  lastProjectedS = 0;
   timing = createTiming(track.length, SECTOR_COUNT);
+
+  resetDriverState();
+};
+
+/**
+ * Clears the driver's own carried state.
+ *
+ * A driver is NOT a pure function of the current observation: it holds the rate-limited actuator
+ * positions from the previous step. Those are not part of the car, so resetting the car alone leaves
+ * them behind, and because they feed the next control decision a rewind lands somewhere different
+ * every time — measured, replaying to five seconds gave 93.99 m, 96.31 m and 99.12 m on three
+ * consecutive attempts.
+ *
+ * That is the difference between replay working and merely appearing to: an inexact rewind looks
+ * like physics noise and is actually forgotten state.
+ *
+ * Declared as a separate function because it refers to bindings defined further down the file, and
+ * calling them from `resetToStart` directly is a temporal dead zone error rather than a subtlety.
+ */
+const resetDriverState = (): void => {
+  aiControls.throttle = 0;
+  aiControls.brake = 0;
+  aiControls.steer = 0;
+  if (!driver) return;
+  driver.applied.throttle = 0;
+  driver.applied.brake = 0;
+  driver.applied.steer = 0;
+  driver.intent.throttle = 0;
+  driver.intent.brake = 0;
+  driver.intent.steer = 0;
 };
 
 /**
@@ -202,6 +276,60 @@ window.addEventListener("keydown", (event: KeyboardEvent) => {
       chaseZoom = 1;
       overviewZoom = 1;
       break;
+
+    /*
+     * PLAYBACK. The layout is the one every video player uses, because the point is to slow a
+     * corner down and step through it without having to learn a new scheme.
+     *
+     *   P        pause and resume
+     *   J / L    back and forward five seconds
+     *   , / .    back and forward a single frame
+     *   [ / ]    slower and faster
+     *
+     * Going BACK is a deterministic replay from the start rather than a stored history: the
+     * simulation is reproducible, so fast-forwarding to an earlier time reproduces exactly the state
+     * that was there. Storing frames would be a second source of truth for the car's state and would
+     * disagree with the first one eventually.
+     */
+    case "p":
+    case "P":
+      playbackSpeed = playbackSpeed === 0 ? 1 : 0;
+      lastTime = performance.now();
+      break;
+    case "j":
+    case "J":
+      fastForwardTo(Math.max(0, sessionTime - 5));
+      lastTime = performance.now();
+      break;
+    case "l":
+    case "L":
+      fastForwardTo(sessionTime + 5);
+      lastTime = performance.now();
+      break;
+    case ",":
+      /*
+       * One frame back. There is no step-in-reverse, so this replays from the start to one step
+       * before the current time — exact, and at sixty steps a second fast enough to feel immediate
+       * for a few seconds of history. Beyond that it slows down, which is an honest limit rather
+       * than a silent failure.
+       */
+      fastForwardTo(Math.max(0, sessionTime - DT));
+      playbackSpeed = 0;
+      lastTime = performance.now();
+      break;
+    case ".":
+      stepsQueued++;
+      playbackSpeed = 0;
+      lastTime = performance.now();
+      break;
+    case "[":
+      // Halve, down to a sixteenth speed.
+      playbackSpeed = playbackSpeed <= 1 / 32 ? playbackSpeed : playbackSpeed / 2;
+      break;
+    case "]":
+      // Double, up to sixteen times.
+      playbackSpeed = Math.min(16, playbackSpeed === 0 ? 1 : playbackSpeed * 2);
+      break;
     default:
       break;
   }
@@ -230,27 +358,6 @@ window.addEventListener("blur", () => held.clear());
  * simulation as training it — the same step, the same car, the same track. Nothing about the
  * viewer changes the physics, which is what makes what you watch worth believing.
  */
-let driver: Driver | null = null;
-
-/**
- * What the loaded checkpoint was, so the panel can say which driver is driving.
- *
- * A generation number is the only way to tell two checkpoints apart at a glance, and without it
- * there is no way to know whether the thing on screen is the run you just finished or one from
- * an hour ago.
- */
-interface DriverInfo {
-  generation: number;
-  fitness: number;
-  trainedSeconds: number;
-  circuit: string;
-}
-let driverInfo: DriverInfo | null = null;
-const observation = createObservation();
-const aiControls = { throttle: 0, brake: 0, steer: 0 };
-
-/** True when the AI is driving rather than the keyboard. */
-let aiDriving = false;
 
 /** The circuit key currently selected, for the status poll. */
 const currentCircuitKey = (): string =>
@@ -460,6 +567,16 @@ const updateDriverPanel = (): void => {
     const node = document.getElementById(id);
     if (node) node.textContent = value;
   };
+
+  /*
+   * Playback state, so it is never ambiguous whether the car is standing still because it is paused
+   * or because it has stopped. A paused simulation that looks like a broken one is worse than no
+   * pause at all.
+   */
+  setField(
+    "playback",
+    playbackSpeed === 0 ? "paused" : playbackSpeed === 1 ? "1x" : `${playbackSpeed}x`,
+  );
   if (!driverInfo) {
     setField("ai-gen", "--");
     setField("ai-fitness", "--");
@@ -818,6 +935,12 @@ simHandle = {
   setZoom: (factor: number) => zoomBy(factor),
   setChaseRotation: (on: boolean) => { chaseRotates = on; },
   zoomState: () => ({ chaseZoom, overviewZoom, chaseRotates, rotation: cameraRotation }),
+  // Transport, so playback can be driven and inspected from outside.
+  setPlayback: (speed: number) => { playbackSpeed = speed; },
+  playback: () => playbackSpeed,
+  sessionSeconds: () => sessionTime,
+  seek: (seconds: number) => { fastForwardTo(Math.max(0, seconds)); lastTime = performance.now(); },
+  stepFrame: () => { stepsQueued++; playbackSpeed = 0; },
 };
 (window as unknown as { sim: SimHandle }).sim = simHandle;
 
@@ -1170,6 +1293,73 @@ window.addEventListener("resize", resize);
 resize();
 
 /**
+ * Lets the side panel be resized by dragging, and collapsed by double-clicking the handle.
+ *
+ * The useful split depends on what you are looking at: watching a racing line wants the whole
+ * screen, reading telemetry wants the panel wide. A fixed three-hundred-pixel column cannot serve
+ * both, and the canvas is the part worth the space.
+ *
+ * Panel width is stored so it survives a reload — the choice is about how you work, not about the
+ * session.
+ */
+const setupSplitter = (): void => {
+  const splitter = document.getElementById("splitter");
+  const aside = document.querySelector("aside");
+  if (!splitter || !aside) return;
+
+  const PANEL_MIN = 200;
+  const STAGE_MIN = 240;
+  const STORAGE_KEY = "panel-width";
+
+  const apply = (width: number): void => {
+    const capped = Math.max(PANEL_MIN, Math.min(width, window.innerWidth - STAGE_MIN));
+    document.body.style.gridTemplateColumns = `1fr 5px ${capped}px`;
+    // The canvas backing size follows the stage, so it must be re-measured after the layout changes.
+    resize();
+  };
+
+  const stored = Number(localStorage.getItem(STORAGE_KEY));
+  if (Number.isFinite(stored) && stored >= PANEL_MIN) apply(stored);
+
+  let dragging = false;
+  splitter.addEventListener("pointerdown", (event) => {
+    dragging = true;
+    splitter.classList.add("dragging");
+    splitter.setPointerCapture((event as PointerEvent).pointerId);
+  });
+  splitter.addEventListener("pointermove", (event) => {
+    if (!dragging) return;
+    apply(window.innerWidth - (event as PointerEvent).clientX);
+  });
+  splitter.addEventListener("pointerup", () => {
+    if (!dragging) return;
+    dragging = false;
+    splitter.classList.remove("dragging");
+    const asideWidth = aside.getBoundingClientRect().width;
+    if (asideWidth > 0) localStorage.setItem(STORAGE_KEY, String(Math.round(asideWidth)));
+  });
+
+  /*
+   * Double-clicking the divider hides the panel entirely, giving the whole window to the canvas.
+   * The state is a class on the body rather than inline styles so it cannot fight the drag width.
+   */
+  splitter.addEventListener("dblclick", () => {
+    document.body.classList.toggle("panel-hidden");
+    requestAnimationFrame(resize);
+  });
+
+  // `H` toggles the panel too, for the same reason a video player has one key for fullscreen.
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "h" || event.key === "H") {
+      document.body.classList.toggle("panel-hidden");
+      requestAnimationFrame(resize);
+    }
+  });
+};
+
+setupSplitter();
+
+/**
  * The live sim state, exposed for measurement.
  *
  * This is not just a convenience: steering direction is the one property that no
@@ -1179,8 +1369,84 @@ resize();
  * verified end to end.
  */
 
+/*
+ * PLAYBACK CONTROL.
+ *
+ * The simulation is a fixed-step system driven by an accumulator, so running it at other than real
+ * time is arithmetic on that accumulator rather than a change to the physics. Nothing about the
+ * result changes: two seconds of slow motion and two seconds of normal speed produce the same car
+ * state, which is what makes slow motion useful for watching a corner rather than merely a
+ * different-looking animation.
+ *
+ * REWIND IS A DETERMINISTIC RESTART. There is no stored history to rewind through and inventing one
+ * would be a second source of truth for the car's state. Instead the car is reset to the start and
+ * the run is replayed at high speed up to the target time. The simulation is deterministic, so the
+ * state arrived at is exactly the state that was there before — the same property the trainer
+ * depends on, used here for playback.
+ */
 let accumulator = 0;
 let lastTime = performance.now();
+/** Physics steps requested by hand, consumed one per frame. */
+let stepsQueued = 0;
+
+/** Multiplier on simulated time. Zero means paused. */
+let playbackSpeed = 1;
+/**
+ * How many physics steps to run before drawing a frame.
+ *
+ * Slow motion needs the opposite of a bigger budget: at a quarter speed some frames contain no step
+ * at all, and the car should visibly hold still rather than jitter between positions.
+ */
+const SLOW_STEPS = 1;
+/** Upper bound on steps in one frame, raised so high speeds stay smooth without freezing the page. */
+const MAX_STEPS = 64;
+
+/**
+ * Performs one fixed physics step.
+ *
+ * Extracted so that ordinary running, single-stepping and the fast-forward used by rewind all
+ * advance the car by exactly the same route. A second copy of this logic would be a second place for
+ * the lap distance to be computed wrongly.
+ */
+const stepOnce = (): void => {
+  readInputs();
+  stepContext.gripNoise = gripNoiseAt(car.distance, track.length);
+  stepCar(car, params, DT, stepContext);
+
+  // Advance the lap distance from the car's actual position, handling the wrap at the
+  // start/finish line so the accumulated distance is monotonic.
+  const projection = projectToTrackNear(track, car.x, car.y, lastProjectedS, 60);
+  const step = projection.s - lastProjectedS;
+  if (step < -track.length / 2) car.distance += step + track.length;
+  else if (step > track.length / 2) car.distance += step - track.length;
+  else car.distance += step;
+  lastProjectedS = projection.s;
+
+  sessionTime += DT;
+  updateTiming(timing, car.distance, sessionTime);
+};
+
+/**
+ * Runs the car forward to a target session time as fast as possible, without drawing.
+ *
+ * Used by rewind. `now` is the wall clock and is not used by the physics, so this is a pure
+ * fast-forward of simulated time.
+ */
+const fastForwardTo = (targetSeconds: number): void => {
+  resetToStart();
+  const targetSteps = Math.round(targetSeconds / DT);
+  /*
+   * The trail is recorded during the replay, so it is cleared BEFORE the steps run rather than after
+   * — clearing it afterwards would leave a rewound car with no trail at all, which looks like a car
+   * that has just appeared rather than one that has been driving.
+   */
+  trail.length = 0;
+  for (let i = 0; i < targetSteps; i++) {
+    stepOnce();
+    trail.push({ x: car.x, y: car.y });
+  }
+  if (trail.length > TRAIL_LENGTH) trail.splice(0, trail.length - TRAIL_LENGTH);
+};
 
 const frame = (now: number): void => {
   // Fixed-step simulation with an accumulator, so the physics runs at exactly
@@ -1188,29 +1454,35 @@ const frame = (now: number): void => {
   // the result, or the trainer and the viewer would disagree.
   const elapsed = Math.min((now - lastTime) / 1000, 0.25);
   lastTime = now;
-  accumulator += elapsed;
 
-  let steps = 0;
-  while (accumulator >= DT && steps < 8) {
-    readInputs();
-    stepContext.gripNoise = gripNoiseAt(car.distance, track.length);
-    stepCar(car, params, DT, stepContext);
+  if (stepsQueued > 0) {
+    // A single step requested by the `>` key while paused.
+    while (stepsQueued > 0) {
+      stepOnce();
+      stepsQueued--;
+    }
+    accumulator = 0;
+  } else if (playbackSpeed <= 0) {
+    // Paused, and deliberately not accumulating: unpausing should resume from here rather than
+    // catch up on however long the pause lasted.
+    accumulator = 0;
+  } else {
+    accumulator += elapsed * playbackSpeed;
 
-    // Advance the lap distance from the car's actual position, handling the wrap at
-    // the start/finish line so the accumulated distance is monotonic.
-    const projection = projectToTrackNear(track, car.x, car.y, lastProjectedS, 60);
-    const step = projection.s - lastProjectedS;
-    if (step < -track.length / 2) car.distance += step + track.length;
-    else if (step > track.length / 2) car.distance += step - track.length;
-    else car.distance += step;
-    lastProjectedS = projection.s;
-
-    sessionTime += DT;
-    updateTiming(timing, car.distance, sessionTime);
-
-    accumulator -= DT;
-    steps++;
+    let steps = 0;
+    while (accumulator >= DT && steps < MAX_STEPS) {
+      stepOnce();
+      accumulator -= DT;
+      steps++;
+    }
+    /*
+     * Drop any leftover time when the budget was exhausted. Without this the accumulator grows
+     * without bound at high speeds and the page freezes trying to catch up — the simulation would
+     * fall further and further behind the clock it is being asked to follow.
+     */
+    if (steps >= MAX_STEPS) accumulator = 0;
   }
+  void SLOW_STEPS;
 
   // Emission is driven from the current car state once per frame rather than per
   // physics step, so the pool lasts longer and the effect does not depend on how
