@@ -27,6 +27,11 @@ export interface EvaluationRequest {
   circuit: string;
   seconds: number;
   objective: "speed" | "distance";
+  /** Every value that affects the score must reach the worker; see `evolve.ts`. */
+  checkpointCount: number;
+  lapReward: number;
+  checkpointReward: number;
+  topSpeedWeight: number;
 }
 
 /** What came back. */
@@ -34,8 +39,10 @@ export interface EvaluationResult {
   fitness: number;
   distance: number;
   averageSpeed: number;
+  topSpeed: number;
   onTrackFraction: number;
   laps: number;
+  checkpointsPassed: number;
 }
 
 interface Pending {

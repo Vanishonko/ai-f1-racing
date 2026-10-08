@@ -114,11 +114,56 @@ const startStateFor = (track: Track): StartState => {
  */
 export type Objective = "speed" | "distance";
 
+/**
+ * Reward for passing a point on the circuit, and for completing laps.
+ *
+ * WHY A LADDER RATHER THAN A SINGLE SCORE AT THE END. A run reports one number when it finishes, and
+ * early in training every driver fails the same way — spins, stops, wanders off — so every score is
+ * near zero and the search has nothing to climb. That is not hypothetical: it produced eighty
+ * generations of literally no progress earlier in this project.
+ *
+ * Checkpoints break a lap into reachable pieces, so a driver that gets two hundred metres down the
+ * road already scores better than one that gets fifty.
+ *
+ * THE CHECKPOINT REWARD MUST THEN BE TAKEN AWAY AGAIN, which is the part that matters. Left in place
+ * it is farmable: a driver can sit on a checkpoint and wobble back and forth collecting it, exactly
+ * as an earlier driver learned to drive off the circuit because distance kept accruing across the
+ * infield. So the checkpoint weight ANNEALS TO ZERO while the lap weight GROWS, and the search is
+ * forced from "get somewhere" to "get round quickly".
+ *
+ * Checkpoints are DIRECTIONAL and counted once, in order. Without that, the cheapest way to collect
+ * them is to drive back and forth across the line.
+ */
+export interface RewardLadder {
+  /** Points per lap, once the lap weight has fully annealed in. */
+  lapReward: number;
+  /** Points per checkpoint at the start, before annealing. */
+  checkpointReward: number;
+  /** Generations over which checkpoints fade out and laps fade in. */
+  annealGenerations: number;
+}
+
+export const DEFAULT_LADDER: RewardLadder = {
+  lapReward: 4000,
+  checkpointReward: 900,
+  annealGenerations: 300,
+};
+
 export interface RunOptions {
   /** Seconds of simulated driving. */
   seconds?: number;
   /** Which quantity the fitness is built on. Defaults to average speed. */
   objective?: Objective;
+  /** How many checkpoints the circuit is divided into. Zero disables them. */
+  checkpointCount?: number;
+  /**
+   * Ladder weights for this run, already annealed by the caller.
+   *
+   * The trainer computes these from the generation number; the environment only applies them, so the
+   * annealing schedule lives in one place and a single run stays a pure function of its options.
+   */
+  lapReward?: number;
+  checkpointReward?: number;
   /**
    * Overrides the top-speed weight for this run.
    *
@@ -154,6 +199,8 @@ export interface RunResult {
   averageSpeed: number;
   /** Fastest speed reached anywhere in the run [m/s]. */
   topSpeed: number;
+  /** Checkpoints passed in the correct order. */
+  checkpointsPassed: number;
   /**
    * Steering travel per hundred metres, in units of full lock.
    *
@@ -333,6 +380,15 @@ export const runPolicy = (
   let steeringWork = 0;
   let previousSteer = 0;
   let topSpeed = 0;
+  /*
+   * Checkpoint progress. `nextCheckpoint` is the index of the one being aimed at, so passing them in
+   * the wrong order or crossing one repeatedly earns nothing — the count only advances when the
+   * correct next one is reached.
+   */
+  let checkpointsPassed = 0;
+  let nextCheckpoint = 0;
+  const checkpointCount = options.checkpointCount ?? 0;
+  const checkpointStep = checkpointCount > 0 ? track.length / checkpointCount : 0;
 
   /*
    * The car's lock and wheelspin timers are CUMULATIVE, so they are differenced rather
@@ -377,6 +433,21 @@ export const runPolicy = (
 
     const speedNow = Math.sqrt(car.vx * car.vx + car.vy * car.vy);
     if (speedNow > topSpeed) topSpeed = speedNow;
+
+    if (checkpointCount > 0) {
+      const target = nextCheckpoint * checkpointStep;
+      /*
+       * `distance` is monotonic along the lap, so a checkpoint counts when the car has travelled past
+       * it. Requiring the CORRECT next one is what makes them directional: a car that reverses over a
+       * line it has already crossed does not get it again, and a car that cuts the infield to reach a
+       * later one does not skip the earlier ones.
+       */
+      if (car.distance >= target) {
+        checkpointsPassed++;
+        nextCheckpoint++;
+        if (nextCheckpoint >= checkpointCount) nextCheckpoint = 0;
+      }
+    }
 
     controls.throttle = 0;
     controls.brake = 0;
@@ -428,7 +499,15 @@ export const runPolicy = (
    * does not pay. The deficit this addresses is real, but not at the cost of the thing the gate
    * exists to enforce.
    */
+  /*
+   * The ladder is gated by the same on-track factor as everything else, so a lap completed by cutting
+   * across the infield does not score.
+   */
+  const lapReward = (options.lapReward ?? 0) * laps * gate;
+  const checkpointReward = (options.checkpointReward ?? 0) * checkpointsPassed * gate;
   const fitness =
+    lapReward +
+    checkpointReward +
     averageSpeed * w.perMetrePerSecond * gate +
     topSpeed * (options.topSpeedWeight ?? w.topSpeedWeight) * gate -
     averageSpeed * overLimit * w.utilizationPenalty -
@@ -446,6 +525,7 @@ export const runPolicy = (
     fitness,
     averageSpeed,
     topSpeed,
+    checkpointsPassed,
     steeringWork: steeringWorkPerMetre,
   };
 };

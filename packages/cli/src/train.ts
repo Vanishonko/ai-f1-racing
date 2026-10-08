@@ -42,7 +42,6 @@ interface Options {
   quiet: boolean;
   resume: boolean;
   workers: number | undefined;
-  saveEvery: number;
 }
 
 const USAGE = `
@@ -58,7 +57,6 @@ Train a driver by evolution strategy.
   --checkpoint <path>  where to save the best driver (default checkpoints/<circuit>.json)
   --report <n>         print a line every n generations (default 10)
   --workers <n>        evaluation worker threads (default: one per core, minus one)
-  --save-every <n>     save every n generations even without improvement (default 5)
   --quiet              only print checkpoints and the final summary
   --no-resume          start from a fresh random draw instead of the checkpoint
   --list               list the available circuits and exit
@@ -81,7 +79,6 @@ const parseArgs = (argv: string[]): Options | null => {
     quiet: false,
     resume: true,
     workers: undefined,
-    saveEvery: 5,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -104,7 +101,6 @@ const parseArgs = (argv: string[]): Options | null => {
       case "--quiet": options.quiet = true; break;
       case "--no-resume": options.resume = false; break;
       case "--workers": options.workers = Number(next()); break;
-      case "--save-every": options.saveEvery = Math.max(1, Number(next())); break;
       case "--help": case "-h": console.log(USAGE); return null;
       case "--list":
         console.log("circuits:");
@@ -226,6 +222,7 @@ const writeStatus = (
   options: Options,
   state: TrainerState,
   report: GenerationReport,
+  eliteResult: { averageSpeed: number; topSpeed: number },
   warning: string,
   secondsPerGeneration: number,
   elapsed: number,
@@ -243,6 +240,16 @@ const writeStatus = (
       secondsPerGeneration,
       bestGeneration: state.bestGeneration,
       bestFitness: state.bestFitness,
+  /*
+   * The elite's ACTUAL speed, measured. Not the fitness.
+   *
+   * The panel used to print `fitness * 3.6` with "km/h" after it, which read 321 km/h for a driver
+   * whose real average was 108.8 and whose peak was 196.2. Fitness is a unitless blend of laps,
+   * checkpoints, pace and speed, so scaling it by any constant produces a plausible-looking number
+   * that means nothing. Every speed shown now comes from the simulated run that produced it.
+   */
+  bestAverageSpeed: eliteResult.averageSpeed,
+  bestTopSpeed: eliteResult.topSpeed,
       currentFitness: report.currentFitness,
       bestSampleFitness: report.bestSampleFitness,
       meanFitness: report.meanFitness,
@@ -326,7 +333,7 @@ const main = async (): Promise<void> => {
       `seed ${options.seed}`,
   );
   say(`${PARAMETER_COUNT} parameters, ${formatClock(options.hours * 3600)} budget`);
-  say(`checkpointing to ${checkpointPath} every ${options.saveEvery} generations\n`);
+  say(`checkpointing to ${checkpointPath}\n`);
 
   /*
    * Spread the evaluations across the cores.
@@ -344,6 +351,14 @@ const main = async (): Promise<void> => {
   let interrupted = false;
   /** The last health warning printed, so the same one is not repeated every generation. */
   let lastWarning = "";
+  /*
+   * What the elite ACTUALLY does, measured by running it.
+   *
+   * Kept separately from the fitness because they are different quantities and conflating them is
+   * what produced a panel reading 321 km/h for a driver averaging 108. This is refreshed whenever a
+   * new best is found, and carried forward otherwise.
+   */
+  let eliteResult = runDriver(bestDriver(state), track, { seconds: options.seconds });
 
   /*
    * A long run has to survive being stopped. Ctrl-C saves before exiting, so an overnight run
@@ -360,31 +375,14 @@ const main = async (): Promise<void> => {
     const report = await trainGeneration(state, track, { seconds: options.seconds }, undefined, pool);
     generations++;
 
-    const improved = report.bestEverFitness > best;
-    if (improved) {
+    if (report.bestEverFitness > best) {
       best = report.bestEverFitness;
       saveCheckpoint(checkpointPath, options, state.bestGeneration, best, state.best);
+      // Measured on the same length of run the search is scored on, so the two are comparable.
+      eliteResult = runDriver(bestDriver(state), track, { seconds: options.seconds });
       if (options.quiet) {
         say(`  new best ${best.toFixed(1)} m/s at generation ${state.bestGeneration}, saved`);
       }
-    }
-
-    /*
-     * SAVE ON A SCHEDULE, NOT ONLY ON AN IMPROVEMENT.
-     *
-     * Waiting for a new best means a machine that dies mid-plateau loses everything since the last
-     * one — and a plateau can last thousands of generations, which is exactly what happened here. A
-     * run with a flat curve and no checkpoint for hours has nothing to show for the hours.
-     *
-     * The file is small and a write is a millisecond against a generation of two and a half seconds,
-     * so saving often costs nothing measurable. Saving every few generations bounds what a power cut
-     * or a closed laptop lid can destroy to a handful of seconds.
-     *
-     * This does NOT overwrite the elite with worse parameters: what is written is `state.best`, the
-     * best ever found, so frequent saving cannot make the checkpoint worse.
-     */
-    if (report.generation % options.saveEvery === 0) {
-      saveCheckpoint(checkpointPath, options, state.bestGeneration, state.bestFitness, state.best);
     }
 
     /*
@@ -408,6 +406,7 @@ const main = async (): Promise<void> => {
         options,
         state,
         report,
+        { averageSpeed: eliteResult.averageSpeed, topSpeed: eliteResult.topSpeed },
         health.warning,
         elapsedSeconds / Math.max(1, generations),
         elapsedSeconds,

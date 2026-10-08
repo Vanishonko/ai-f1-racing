@@ -430,6 +430,9 @@ interface TrainingStatus {
   currentFitness: number;
   meanDistance: number;
   meanOnTrack: number;
+  /** The elite's REAL measured speeds, in metres per second. */
+  bestAverageSpeed: number;
+  bestTopSpeed: number;
   warning: string;
   genes: number[];
 }
@@ -553,7 +556,16 @@ const updateTrainingPanel = (): void => {
   const t = trainingStatus;
   field("train-state", "running");
   field("train-gen", `${t.generation}  (best at ${t.bestGeneration})`);
-  field("train-best", `${(t.bestFitness * 3.6).toFixed(1)} km/h avg`);
+  /*
+   * Speed in km/h, from the simulated run. `bestFitness` is a unitless blend of laps, checkpoints,
+   * pace and speed — printing it with "km/h" after it read 321 for a driver averaging 108, which is
+   * how a fitness number came to look like a speed and be believed.
+   */
+  const kmh = (value: number): string => `${(value * 3.6).toFixed(0)} km/h`;
+  field(
+    "train-best",
+    t.bestAverageSpeed ? `${kmh(t.bestAverageSpeed)} avg, ${kmh(t.bestTopSpeed)} peak` : "--",
+  );
   field("train-mean", `${t.meanDistance.toFixed(0)} m, ${(t.meanOnTrack * 100).toFixed(0)}% on track`);
   field("train-warn", t.warning ? `WARNING: ${t.warning}` : "");
   const replay = document.getElementById("replay-gen");

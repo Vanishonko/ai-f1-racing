@@ -19,6 +19,10 @@ interface Request {
   circuit: string;
   seconds: number;
   objective: Objective;
+  checkpointCount: number;
+  lapReward: number;
+  checkpointReward: number;
+  topSpeedWeight: number;
 }
 
 if (!parentPort) throw new Error("the evaluation worker must be started as a worker thread");
@@ -51,14 +55,20 @@ port.on("message", (request: Request) => {
     const result = runDriver(driver, track, {
       seconds: request.seconds,
       objective: request.objective,
+      checkpointCount: request.checkpointCount,
+      lapReward: request.lapReward,
+      checkpointReward: request.checkpointReward,
+      topSpeedWeight: request.topSpeedWeight,
     });
 
     port.postMessage({
       fitness: result.fitness,
       distance: result.distance,
       averageSpeed: result.averageSpeed,
+      topSpeed: result.topSpeed,
       onTrackFraction: result.onTrackFraction,
       laps: result.laps,
+      checkpointsPassed: result.checkpointsPassed,
     });
   } catch (error) {
     // Rethrowing inside a worker kills it silently, which would hang a run with no explanation.

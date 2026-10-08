@@ -70,7 +70,13 @@ test("evolve: the recorded elite is the driver it claims to be", async () => {
     await trainGeneration(state, track, SHORT);
 
     if (state.bestFitness === -Infinity) continue;
-    const measured = runDriver(bestDriver(state), track, SHORT).fitness;
+    /*
+     * Scored under the objective the elite was RECORDED against, not a fresh one. The ladder anneals
+     * with the generation number, so the same parameters are worth a different number at generation
+     * ten and at generation two hundred — and comparing across that boundary reported an elite
+     * claiming 2699 that measured zero.
+     */
+    const measured = runDriver(bestDriver(state), track, state.bestOptions ?? SHORT).fitness;
     assert.ok(
       Math.abs(measured - state.bestFitness) < 1e-9,
       `generation ${generation}: the elite claims ${state.bestFitness} but measures ${measured}`,

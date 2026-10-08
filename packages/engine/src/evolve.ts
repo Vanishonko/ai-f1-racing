@@ -31,7 +31,13 @@
  * and no change to the code can be attributed to anything.
  */
 
-import { runDriver, type RunResult, type RunOptions } from "./environment.ts";
+import {
+  runDriver,
+  DEFAULT_LADDER,
+  type RewardLadder,
+  type RunOptions,
+  type RunResult,
+} from "./environment.ts";
 import { createDriver, PARAMETER_COUNT, type Driver } from "./driver.ts";
 import { createRng, type Rng } from "./rng.ts";
 import { logUnit } from "./activation.ts";
@@ -55,14 +61,27 @@ export interface EvaluationRequest {
   circuit: string;
   seconds: number;
   objective: "speed" | "distance";
+  /**
+   * The whole reward configuration travels with the request.
+   *
+   * A worker evaluates one driver in isolation, so anything that affects the score has to be sent to
+   * it. Missing one produces a run that scores differently with the pool than without it, which is
+   * the worst kind of bug: it works, and it disagrees with itself.
+   */
+  checkpointCount: number;
+  lapReward: number;
+  checkpointReward: number;
+  topSpeedWeight: number;
 }
 
 export interface EvaluationResult {
   fitness: number;
   distance: number;
   averageSpeed: number;
+  topSpeed: number;
   onTrackFraction: number;
   laps: number;
+  checkpointsPassed: number;
 }
 
 export interface EvolutionConfig {
@@ -129,6 +148,17 @@ export interface TrainerState {
   /** Best parameters ever found, never mutated. */
   best: Float64Array;
   bestFitness: number;
+  /**
+   * The options the elite was scored under.
+   *
+   * THE LADDER ANNEALS, so the same parameters score differently at different generations. Comparing
+   * an elite recorded at generation ten against a fresh run under generation two hundred's weights is
+   * comparing two different objectives, and it reported an elite claiming 2699 that measured zero.
+   *
+   * Keeping the options alongside the score means the recorded number always belongs to the recorded
+   * vector AND to the objective it was measured against.
+   */
+  bestOptions: RunOptions | null;
   bestGeneration: number;
   /** Adam moments. */
   moment1: Float64Array;
@@ -220,6 +250,7 @@ export const createTrainer = (
      * inherited on trust from a file.
      */
     bestFitness: -Infinity,
+    bestOptions: null,
     bestGeneration: 0,
     moment1: new Float64Array(PARAMETER_COUNT),
     moment2: new Float64Array(PARAMETER_COUNT),
@@ -292,7 +323,7 @@ export const trainGeneration = async (
   let onTrackSum = 0;
 
   const evaluate = (genes: Float64Array, index: number): void => {
-    const result = score(genes, track, runOptions);
+    const result = score(genes, track, options);
     scores[index] = result.fitness;
     meanFitness += result.fitness;
     meanDistance += result.distance;
@@ -304,7 +335,19 @@ export const trainGeneration = async (
   // Score the unperturbed centre first, so progress is visible from generation one and the
   // elite can be updated even if every perturbation this generation happens to be worse.
   const scoredMean = state.mean.slice();
-  const current = score(state.mean, track, runOptions);
+  /*
+   * The ladder is applied per generation, so the annealing is driven by how far the search has got
+   * rather than by a wall clock — a run that is resumed continues its schedule.
+   */
+  const ladder = ladderFor(state.generation + 1);
+  const options: RunOptions = {
+    ...runOptions,
+    checkpointCount: runOptions.checkpointCount ?? 12,
+    lapReward: ladder.lapReward,
+    checkpointReward: ladder.checkpointReward,
+  };
+
+  const current = score(state.mean, track, options);
 
   for (let i = 0; i < samples; i++) {
     const noise = perturbations[i]!;
@@ -326,8 +369,12 @@ export const trainGeneration = async (
       variants.map((genes) => ({
         genes,
         circuit: track.key,
-        seconds: runOptions.seconds ?? 90,
-        objective: runOptions.objective ?? "speed",
+        seconds: options.seconds ?? 90,
+        objective: options.objective ?? "speed",
+        checkpointCount: options.checkpointCount ?? 12,
+        lapReward: options.lapReward ?? 0,
+        checkpointReward: options.checkpointReward ?? 0,
+        topSpeedWeight: options.topSpeedWeight ?? 0.15,
       })),
     );
     for (let i = 0; i < results.length; i++) {
@@ -390,7 +437,9 @@ export const trainGeneration = async (
   state.generation = step;
   if (current.fitness > state.bestFitness) {
     state.best.set(scoredMean);
-    state.bestFitness = score(state.best, track, runOptions).fitness;
+    state.bestFitness = score(state.best, track, options).fitness;
+    // The objective it was measured against travels with the score; see `bestOptions`.
+    state.bestOptions = options;
     state.bestGeneration = step;
   }
   /*
@@ -404,7 +453,9 @@ export const trainGeneration = async (
     state.best.set(variants[bestIndex]!);
     // Confirm with an isolated evaluation, so the recorded number always belongs to the
     // recorded vector.
-    state.bestFitness = score(state.best, track, runOptions).fitness;
+    state.bestFitness = score(state.best, track, options).fitness;
+    // The objective it was measured against travels with the score; see `bestOptions`.
+    state.bestOptions = options;
     state.bestGeneration = step;
   }
 
@@ -519,6 +570,28 @@ export const assessRun = (state: TrainerState, report: GenerationReport): RunHea
       `no improvement for ${sinceImprovement} generations; the search is either finished or stuck`;
   }
   return { generationsSinceImprovement: sinceImprovement, collapsed, stagnant, plateaued, warning };
+};
+
+/**
+ * Ladder weights for a given generation.
+ *
+ * Checkpoints dominate early, when reaching any point at all is the achievement, and fade to nothing
+ * as the lap reward grows. The transition is the point: without it the search farms checkpoints, and
+ * without the early phase it has no gradient at all while every driver is still failing.
+ *
+ * Measured from the generation number rather than from elapsed time, so a run resumed from a
+ * checkpoint continues the schedule it was on rather than starting the annealing over.
+ */
+export const ladderFor = (
+  generation: number,
+  ladder: RewardLadder = DEFAULT_LADDER,
+): { lapReward: number; checkpointReward: number } => {
+  const progress = Math.max(0, Math.min(1, generation / Math.max(1, ladder.annealGenerations)));
+  const smooth = progress * progress * (3 - 2 * progress);
+  return {
+    lapReward: ladder.lapReward * smooth,
+    checkpointReward: ladder.checkpointReward * (1 - smooth),
+  };
 };
 
 /** A driver built from the best parameters found so far. */
