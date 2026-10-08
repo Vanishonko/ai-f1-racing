@@ -328,6 +328,12 @@ export const trainGeneration = (
   };
 };
 
+/**
+ * The parameter count, re-exported so a caller can size a checkpoint without importing the
+ * driver module as well.
+ */
+export const PARAMETER_COUNT_CHECK = PARAMETER_COUNT;
+
 /** A driver built from the best parameters found so far. */
 export const bestDriver = (state: TrainerState): Driver =>
   createDriver(state.best.slice(), () => 0);

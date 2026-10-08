@@ -1,0 +1,7 @@
+training on Club Circuit (3521 m)
+24 perturbations per generation, 90 s per evaluation, seed 1
+675 parameters, 13h 00m 00s budget
+checkpointing to /Users/vanish/Documents/ai f1/checkpoints/club.json
+
+gen      best-ever    mean dist   on track    elapsed
+  25         1063          391        41%    0h 02m 12s

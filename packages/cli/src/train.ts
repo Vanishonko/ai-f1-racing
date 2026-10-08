@@ -130,6 +130,17 @@ const saveCheckpoint = (
   );
 };
 
+/**
+ * Writes a line and flushes it.
+ *
+ * Node buffers stdout when it is not a terminal, which for a redirected overnight run means the
+ * log lags the work by minutes and shows nothing at all until a buffer fills. A training run is
+ * watched while it happens, so the output is forced out every time.
+ */
+const say = (line: string): void => {
+  process.stdout.write(`${line}\n`);
+};
+
 const formatClock = (seconds: number): string => {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -162,13 +173,13 @@ const main = (): void => {
     sigma: options.sigma,
   });
 
-  console.log(`training on ${track.name} (${track.length.toFixed(0)} m)`);
-  console.log(
+  say(`training on ${track.name} (${track.length.toFixed(0)} m)`);
+  say(
     `${options.population} perturbations per generation, ${options.seconds} s per evaluation, ` +
       `seed ${options.seed}`,
   );
-  console.log(`${PARAMETER_COUNT} parameters, ${formatClock(options.hours * 3600)} budget`);
-  console.log(`checkpointing to ${checkpointPath}\n`);
+  say(`${PARAMETER_COUNT} parameters, ${formatClock(options.hours * 3600)} budget`);
+  say(`checkpointing to ${checkpointPath}\n`);
 
   const started = Date.now();
   const deadline = started + options.hours * 3600 * 1000;
@@ -186,7 +197,7 @@ const main = (): void => {
   process.on("SIGINT", onInterrupt);
   process.on("SIGTERM", onInterrupt);
 
-  console.log("gen      best-ever    mean dist   on track    elapsed");
+  say("gen      best-ever    mean dist   on track    elapsed");
   while (Date.now() < deadline && !interrupted) {
     const report = trainGeneration(state, track, { seconds: options.seconds });
     generations++;
@@ -195,15 +206,13 @@ const main = (): void => {
       best = report.bestEverFitness;
       saveCheckpoint(checkpointPath, options, state.bestGeneration, best, state.best);
       if (options.quiet) {
-        console.log(
-          `  new best ${best.toFixed(0)} at generation ${state.bestGeneration}, saved`,
-        );
+        say(`  new best ${best.toFixed(0)} at generation ${state.bestGeneration}, saved`);
       }
     }
 
     if (!options.quiet && report.generation % options.reportEvery === 0) {
       const elapsed = (Date.now() - started) / 1000;
-      console.log(
+      say(
         `${String(report.generation).padStart(4)}  ${best.toFixed(0).padStart(11)}  ` +
           `${report.meanDistance.toFixed(0).padStart(11)}  ` +
           `${(report.meanOnTrack * 100).toFixed(0).padStart(8)}%  ` +
@@ -219,11 +228,11 @@ const main = (): void => {
   // only works for exactly its training duration has not learned to drive the circuit.
   const finalSeconds = Math.max(options.seconds, 120);
   const finalResult = runDriver(bestDriver(state), track, { seconds: finalSeconds });
-  console.log(
+  say(
     `\n${interrupted ? "interrupted" : "finished"} after ${generations} generations ` +
       `in ${formatClock((Date.now() - started) / 1000)}`,
   );
-  console.log(
+  say(
     `best driver over ${finalSeconds} s: ${finalResult.distance.toFixed(0)} m, ` +
       `${finalResult.laps} laps, on track ${(finalResult.onTrackFraction * 100).toFixed(0)}%, ` +
       `mean tire use ${finalResult.meanUtilization.toFixed(2)}`,
@@ -234,7 +243,7 @@ const main = (): void => {
    * is a clear signal that the run needs different settings rather than a silent surprise.
    */
   saveCheckpoint(checkpointPath, options, state.bestGeneration, state.bestFitness, state.best);
-  console.log(`saved to ${checkpointPath}`);
+  say(`saved to ${checkpointPath}`);
 };
 
 main();
