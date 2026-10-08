@@ -79,7 +79,7 @@ export const steerCos = (steering: number): number => {
 };
 
 /** Wraps an unbounded heading into 0..2pi. */
-export const wrapHeading = (heading: number): number => {
+const wrapHeading = (heading: number): number => {
   const wrapped = heading - Math.floor(heading / TWO_PI) * TWO_PI;
   return wrapped < 0 ? wrapped + TWO_PI : wrapped;
 };

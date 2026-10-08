@@ -36,7 +36,7 @@ import { WHEEL_FL, WHEEL_FR, WHEEL_RL, WHEEL_RR, type CarState } from "./car.ts"
 export const RAY_COUNT = 11;
 
 /** Furthest a ray reaches [m]. Beyond this the car is effectively off the circuit. */
-export const RAY_RANGE = 90;
+const RAY_RANGE = 90;
 
 /** How far the fan spreads either side of the nose, in radians. */
 const RAY_HALF_ANGLE = 1.0;

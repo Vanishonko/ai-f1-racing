@@ -130,7 +130,7 @@ export interface RunResult {
  * driver that never slides — the opposite of what is wanted. What is punished is spending
  * time SATURATED and LOCKED, not using the tires.
  */
-export const FITNESS_WEIGHTS = {
+const FITNESS_WEIGHTS = {
   /** Fitness per metre of progress. Sets the overall scale. */
   perMetre: 1,
   /** Penalty per metre for mean tire utilization above the threshold below. */

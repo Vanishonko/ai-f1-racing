@@ -52,7 +52,7 @@ export interface EvolutionConfig {
   epsilon: number;
 }
 
-export const DEFAULT_EVOLUTION: EvolutionConfig = {
+const DEFAULT_EVOLUTION: EvolutionConfig = {
   populationSize: 16,
   /*
    * Sized for the fitness scale rather than picked by feel. Fitness is roughly metres
@@ -341,48 +341,3 @@ export const bestDriver = (state: TrainerState): Driver =>
 /** A driver built from the current search centre, for comparison. */
 export const meanDriver = (state: TrainerState): Driver =>
   createDriver(state.mean.slice(), () => 0);
-
-/**
- * Runs a driver and captures a trace, for replaying what a trained driver actually does.
- *
- * Returns the car state at each recorded step, subsampled so a replay buffer stays a
- * sensible size — at sixty steps a second a ninety-second run is 5400 frames per driver.
- */
-export interface TraceFrame {
-  elapsed: number;
-  x: number;
-  y: number;
-  heading: number;
-  speed: number;
-  throttle: number;
-  brake: number;
-  steer: number;
-}
-
-export const traceDriver = (
-  driver: Driver,
-  track: Track,
-  options: RunOptions & { recordEvery?: number } = {},
-): { frames: TraceFrame[]; result: RunResult } => {
-  const recordEvery = options.recordEvery ?? 6;
-  const frames: TraceFrame[] = [];
-  let step = 0;
-  const result = runDriver(driver, track, {
-    ...options,
-    onStep: (car, elapsed) => {
-      if (step++ % recordEvery !== 0) return;
-      frames.push({
-        elapsed,
-        x: car.x,
-        y: car.y,
-        heading: car.heading,
-        speed: Math.sqrt(car.vx * car.vx + car.vy * car.vy),
-        throttle: car.throttle,
-        brake: car.brake,
-        steer: car.steerAngle,
-      });
-    },
-  });
-  return { frames, result };
-};
-
