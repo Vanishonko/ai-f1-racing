@@ -28,13 +28,19 @@ Tests: **29 passing, 0 failing** (`pnpm test`).
 Determinism lint: **clean**. Typecheck: **clean**.
 
 Known flaws, recorded rather than hidden:
-- The Hairpin's centreline crosses itself three times near s = 660 m, making the
-  track projection ambiguous there. Fixing it properly means redesigning the
-  circuit; every attempted quick fix produced a worse one.
 - Full-throttle wheelspin costs less than it should, because the tire model has no
   thermal limit and the rev limiter caps wheel speed. `throttleScale` now exists so
   the trainer can discover modulation anyway, and the launch sweep shows a real
   optimum at about 70% throttle.
+
+Track state (all four now clean — no self-crossings, no surface overlap):
+
+| track | length | tightest corner |
+|---|---|---|
+| The Oval | 2319 m | 81 m (126 km/h) |
+| Hairpin | 2313 m | 24 m (70 km/h) |
+| Chicane | 2504 m | 19 m (61 km/h) |
+| Club Circuit | 3290 m | 20 m (62 km/h hairpin at the end) |
 
 | Piece | State |
 |---|---|
@@ -277,6 +283,55 @@ generated points, or sweeping a parameter. Two of my four "fixes" made things
 worse. The tests are better for it, but the pattern is consistent enough to name:
 when the code is self-consistent and the behaviour is wrong, stop reasoning and go
 read the numbers.
+
+
+### Overlapping straights, a rebuilt hairpin, and crude smoke
+
+**The overlap was real and measurable.** The Club had two long straights at
+y = -170 and y = -180 while each carried a half-width of 8.5 m. They were 10 m
+apart, so the two SURFACES genuinely overlapped along their whole length and the
+track read as one fat ribbon. Measured closest approach was **4.9 m against the
+17 m needed to stay clear.** Replaced with a proper end complex: a long run down
+the right, a tight hairpin, and a straight back to the line.
+
+**The Chicane overlapped too** (1.9 m), and the Hairpin genuinely self-crossed
+three times. Both are fixed. All four layouts now measure clean:
+
+| track | length | tightest | clearance |
+|---|---|---|---|
+| The Oval | 2319 m | 81 m | 77 m |
+| Hairpin | 2313 m | 24 m | 25 m |
+| Chicane | 2504 m | 19 m | 45 m |
+| Club Circuit | 3290 m | 20 m | 28 m |
+
+**The fix that unblocked all of it** was a corner-filleting helper. I had been
+placing apex points by hand and testing afterwards, which produced layout after
+layout whose legs doubled back through each other — roughly a dozen failed attempts
+across the session. `fillet.ts` takes an ordinary polygon and inserts a quadratic
+arc at every corner, so every turn has a radius BY CONSTRUCTION and the radius
+becomes a single number to tune. The first circuit built with it validated
+immediately at 29 m radius, and the two worst offenders were rebuilt cleanly in one
+attempt each.
+
+A detail worth recording, because it caused two more crossings: filleting SHORTENS
+each edge it touches. Squeeze a hairpin tighter than that allows and the leg corner
+and the U corner fillet into each other. The hairpin's U ends are therefore spaced
+175 m apart and its legs 250 m apart, which is what leaves room for both fillets.
+
+**The old flaw is gone and its test with it.** The Hairpin no longer crosses itself,
+so the test that documented the crossing is replaced by one that checks BOTH failure
+modes across every layout: topology (no self-crossing, which would make the `(s, d)`
+projection ambiguous) and clearance (no surface overlap, which is a separate
+measure). Neither existed before, which is why both shipped.
+
+**Smoke, deliberately cheap.** Emitted when a tire is sliding past 45% slip, drawn
+as fading discs from a flat ring buffer, off by default behind a toggle. It is a
+visual aid for seeing where the limit is, not a fluid sim.
+
+It lives in the viewer and NOT in the engine, which is the important part:
+particles are a rendering concern with a random element, and the engine's
+determinism is what makes replays reproducible from a seed. A cosmetic effect must
+never be able to break that, so the engine has no idea this exists.
 
 ## Next
 

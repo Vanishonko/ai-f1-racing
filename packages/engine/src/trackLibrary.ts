@@ -19,13 +19,22 @@
  *    attempt to open the circuit up produced a worse track, so the flaw is
  *    documented rather than fixed. See the test file for the bounds.
  *  - `chicane`: direction changes under load. Tests whether the driver can
- *    release the brake and let the car settle before turning in.
+ *    release the brake and let the car settle before turning in. Built by
+ *    filleting a polygon of corners, so the control points already trace each
+ *    arc and the spline never has to invent a radius.
  *  - `club`: a full circuit with a bit of everything, including a long run to
  *    the final corner. This is the layout for close finishes, because a mistake
  *    in the last sector is expensive and recoverable up to the line.
  */
 
-import { buildTrack, type Track, type TrackControlPoints } from "./track.ts";
+import {
+  buildTrack,
+  minimumCornerRadius,
+  selfIntersections,
+  type Track,
+  type TrackControlPoints,
+} from "./track.ts";
+import { roundCorners } from "./fillet.ts";
 
 /**
  * A generous oval: two long straights joined by sweeping constant-radius turns.
@@ -53,42 +62,33 @@ export const OVAL: TrackControlPoints = {
 };
 
 /**
- * A long straight into a tight hairpin, then a return leg.
+ * A long run into a tight right-hand U, then a slower complex on the way back.
  *
- * The hairpin apex is described by two waypoints placed close together near the
- * bottom of the loop, which is what tightens the spline radius to roughly 20 m —
- * slow enough that the car is in first gear and traction-limited on exit.
+ * Built by filleting a polygon, so the control points already trace each arc and
+ * the spline never has to invent a radius. That matters most here: an earlier
+ * version placed the apex by hand with two waypoints bunched together, which does
+ * tighten the radius but also made the outbound leg dip back through the return
+ * leg and cross it three times.
+ *
+ * The two legs are 250 m apart and the U's ends are 175 m apart, because the
+ * fillet shortens each edge it touches — squeeze the U harder than that and the
+ * leg corner and the U corner fillet into each other, which produced two further
+ * crossings before the spacing was fixed.
+ *
+ * The result is the slowest corner on any of these circuits, which is the point:
+ * it is where a lockup is most expensive and where a good exit matters most.
  */
 export const HAIRPIN: TrackControlPoints = {
   halfWidth: 8,
-  points: [
-    [-260, -180],
-    [120, -180],
-    [260, -170],
-    [300, -120],
-    [290, -60],
-    [250, -30],
-    [200, -25],
-    [150, -45],
-    [120, -90],
-    [90, -130],
-    [30, -150],
-    [-60, -150],
-    [-180, -120],
-    [-280, -60],
-    [-330, 20],
-    [-300, 110],
-    [-220, 165],
-    [-80, 185],
-    [80, 185],
-    [220, 160],
-    [300, 90],
-    [310, 10],
-    [280, -60],
-    [240, -110],
-    [160, -140],
-    [-40, -150],
-  ],
+  points: roundCorners(
+    [
+      [-380, 125], [180, 125], [400, 125],
+      [430, 50], [400, -125],
+      [-140, -125], [-320, -125],
+      [-430, -190], [-480, -100], [-460, 20],
+    ],
+    45,
+  ),
 };
 
 /**
@@ -100,43 +100,35 @@ export const HAIRPIN: TrackControlPoints = {
  */
 export const CHICANE: TrackControlPoints = {
   halfWidth: 7.5,
-  points: [
-    [-250, -150],
-    [100, -150],
-    [200, -130],
-    [230, -80],
-    [200, -30],
-    [140, -10],
-    [90, -30],
-    [70, -80],
-    [40, -120],
-    [-30, -140],
-    [-120, -120],
-    [-190, -70],
-    [-240, 0],
-    [-250, 80],
-    [-200, 150],
-    [-110, 190],
-    [0, 200],
-    [130, 190],
-    [230, 150],
-    [290, 80],
-    [300, -10],
-    [270, -90],
-    [210, -140],
-    [120, -155],
-    [-60, -155],
-  ],
+  points: roundCorners(
+    [
+      [-420, 170], [120, 170], [300, 145], [430, 70], [460, -30],
+      [390, -110], [270, -95], [200, -150], [290, -215], [170, -275],
+      [-40, -300], [-250, -270], [-400, -185], [-480, -60], [-470, 80],
+    ],
+    55,
+  ),
 };
 
 /**
- * A club circuit with a bit of everything, including a long run to the line.
+ * A club circuit with a bit of everything, finishing with a hairpin.
  *
- * The complex around [270, 25] -> [210, 35] -> [160, 10] -> [140, -45] is the
- * signature of the lap: a right-left flick onto the long run down the left side,
- * and the return straight is the last thing before the line. The waypoints there
- * are deliberately close together, because bunched control points sharpen the
- * spline radius, and that is what gives the corner its character.
+ * The complex around [300, 10] -> [240, 35] -> [180, 20] -> [140, -30] is the
+ * signature of the lap: a right-left flick onto the long left-hand sweep that runs
+ * up and across the top. The waypoints there are deliberately close together,
+ * because bunched control points sharpen the spline radius, and that is what gives
+ * the corner its character.
+ *
+ * The lap then ends with a long run down the right side into a tight hairpin and a
+ * straight back to the line, which is what puts the lap's decisive corner adjacent
+ * to the finish.
+ *
+ * THE PREVIOUS VERSION HAD TWO LONG STRAIGHTS AT y = -170 AND y = -180. They were
+ * 10 m apart while each carried a half-width of 8.5 m, so the two surfaces
+ * genuinely overlapped along their whole length and the track read as a single
+ * fat ribbon rather than two legs. Measured closest approach was 4.9 m against the
+ * 17 m required to stay clear. The hairpin fixes it by separating the legs by the
+ * diameter of the turn, which is also what makes the turn geometrically possible.
  *
  * TREAT THIS BLOCK AS CONTENT, NOT SCAFFOLDING. Attempts to "tidy" it produced a
  * circuit that was straighter, slower and considerably less interesting.
@@ -148,34 +140,16 @@ export const CHICANE: TrackControlPoints = {
 export const CLUB: TrackControlPoints = {
   halfWidth: 8.5,
   points: [
-    [-240, -170],
-    [160, -170],
-    [280, -150],
-    [330, -90],
-    [320, -20],
-    [270, 25],
-    [210, 35],
-    [160, 10],
-    [140, -45],
-    [110, -95],
-    [50, -125],
-    [-40, -135],
-    [-150, -110],
-    [-240, -60],
-    [-300, 20],
-    [-320, 100],
-    [-280, 170],
-    [-180, 210],
-    [-40, 220],
-    [100, 205],
-    [210, 165],
-    [290, 100],
-    [350, 20],
-    [400, -70],
-    [390, -140],
-    [300, -175],
-    [140, -180],
-    [-80, -180],
+    // Opening straight, then the signature right-left flick.
+    [-240, -170], [60, -170], [220, -160], [310, -120], [330, -50],
+    [300, 10], [240, 35], [180, 20], [140, -30], [100, -85],
+    // Long left-hand sweep up and across the top of the circuit.
+    [30, -120], [-70, -125], [-180, -95], [-270, -40], [-320, 40],
+    [-320, 120], [-270, 190], [-170, 235], [-40, 245], [90, 230],
+    [200, 190], [280, 125], [330, 40],
+    // Final complex: a long run down into a tight hairpin, then back to the line.
+    [360, -50], [380, -140], [330, -230], [200, -280], [40, -290],
+    [-120, -280], [-230, -240],
   ],
 };
 

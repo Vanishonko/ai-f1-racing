@@ -115,6 +115,97 @@ const readInputs = (): void => {
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 
 // ---------------------------------------------------------------------------
+// Tire smoke
+// ---------------------------------------------------------------------------
+/**
+ * Deliberately crude smoke, and deliberately NOT in the engine.
+ *
+ * Emitted when a tire is sliding — locked or spinning hard — and stored as a flat
+ * ring buffer so nothing allocates per frame. It is a visual aid for seeing where
+ * the limit is, not a fluid simulation, so it is a handful of fading discs.
+ *
+ * Keeping it out of `packages/engine` matters: particles are a rendering concern
+ * with a random element, and the engine's determinism is what makes replays
+ * reproducible from a seed. A cosmetic effect must never be able to break that, so
+ * the engine has no idea this exists.
+ */
+const SMOKE_MAX = 160;
+const smoke = {
+  x: new Float64Array(SMOKE_MAX),
+  y: new Float64Array(SMOKE_MAX),
+  age: new Float64Array(SMOKE_MAX),
+  life: new Float64Array(SMOKE_MAX),
+  size: new Float64Array(SMOKE_MAX),
+  count: 0,
+  write: 0,
+  // Emission is throttled so a long slide does not empty the whole pool at once.
+  cooldown: 0,
+};
+
+const emitSmoke = (x: number, y: number, intensity: number): void => {
+  const index = smoke.write;
+  smoke.x[index] = x;
+  smoke.y[index] = y;
+  smoke.age[index] = 0;
+  smoke.life[index] = 0.55 + 0.35 * ((index * 37) % 100) / 100;
+  smoke.size[index] = 1.6 + 2.6 * intensity;
+  smoke.write = (index + 1) % SMOKE_MAX;
+  if (smoke.count < SMOKE_MAX) smoke.count++;
+};
+
+const updateSmoke = (dt: number): void => {
+  smoke.cooldown -= dt;
+  const wantsSmoke = (document.getElementById("smoke") as HTMLInputElement | null)?.checked ?? false;
+  if (!wantsSmoke) { smoke.count = 0; return; }
+
+  // Which tires are sliding, and how hard.
+  const offsets: Array<[number, number]> = [
+    [params.cgToFront, params.trackFront / 2],
+    [params.cgToFront, -params.trackFront / 2],
+    [-params.cgToRear, params.trackRear / 2],
+    [-params.cgToRear, -params.trackRear / 2],
+  ];
+
+  const reference = Math.max(Math.abs(car.vx), 2);
+  const cos = Math.cos(car.heading);
+  const sin = Math.sin(car.heading);
+
+  for (let w = 0; w < 4; w++) {
+    const slip = Math.abs((car.omega[w]! * params.wheelRadius - car.vx) / reference);
+    // Only well past the grip peak makes smoke, so it reads as a warning rather
+    // than as constant haze.
+    if (slip < 0.45) continue;
+    const intensity = Math.min(1, (slip - 0.45) / 0.9);
+    if (smoke.cooldown > 0) continue;
+    const [forward, lateral] = offsets[w]!;
+    emitSmoke(
+      car.x + forward * cos - lateral * sin,
+      car.y + forward * sin + lateral * cos,
+      intensity,
+    );
+  }
+  if (smoke.cooldown <= 0) smoke.cooldown = 0.012;
+
+  for (let i = 0; i < smoke.count; i++) smoke.age[i]! += dt;
+};
+
+const drawSmoke = (): void => {
+  const wantsSmoke = (document.getElementById("smoke") as HTMLInputElement | null)?.checked ?? false;
+  if (!wantsSmoke) return;
+
+  for (let i = 0; i < smoke.count; i++) {
+    const t = smoke.age[i]! / smoke.life[i]!;
+    if (t >= 1) continue;
+    const radius = smoke.size[i]! * (0.6 + t * 2.4) * camera.scale * 0.5;
+    const alpha = (1 - t) * 0.35;
+    ctx.beginPath();
+    ctx.arc(toScreenX(smoke.x[i]!), toScreenY(smoke.y[i]!), Math.max(1, radius), 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(214,220,228,${alpha.toFixed(3)})`;
+    ctx.fill();
+  }
+};
+
+// ---------------------------------------------------------------------------
 // Camera
 // ---------------------------------------------------------------------------
 let camera = { x: 0, y: 0, scale: 1 };
@@ -416,6 +507,11 @@ const frame = (now: number): void => {
     steps++;
   }
 
+  // Emission is driven from the current car state once per frame rather than per
+  // physics step, so the pool lasts longer and the effect does not depend on how
+  // many substeps the loop happened to run.
+  updateSmoke(elapsed);
+
   trail.push({ x: car.x, y: car.y });
   if (trail.length > TRAIL_LENGTH) trail.shift();
 
@@ -424,6 +520,7 @@ const frame = (now: number): void => {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   drawTrack();
   drawTrail();
+  drawSmoke();
   if ((document.getElementById("rays") as HTMLInputElement).checked) drawWheelForces();
   if ((document.getElementById("ghost") as HTMLInputElement).checked) drawWheelForces();
   drawCar();

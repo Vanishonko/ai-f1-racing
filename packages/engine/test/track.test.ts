@@ -34,43 +34,58 @@ test("track: every hand-authored layout builds and is drivable", () => {
   }
 });
 
-test("track: the Hairpin has a known self-crossing, and it is confined", () => {
+test("track: no layout overlaps itself or crosses its own centreline", () => {
   /*
-   * Recorded rather than fixed, deliberately.
+   * Both failure modes shipped, and both were found by driving rather than by any
+   * test:
    *
-   * The Hairpin's outbound leg dips back through the return leg, so its centreline
-   * crosses itself three times. Every attempt to open it up produced a worse
-   * circuit — straighter, slower, and less interesting — so the crossing is kept
-   * and the LAYOUT is treated as content rather than as scaffolding.
+   *   - the Club had two long straights at y = -170 and y = -180 while each carried
+   *     a half-width of 8.5 m, so the two SURFACES overlapped along their whole
+   *     length and the track read as one fat ribbon;
+   *   - the Hairpin's outbound leg dipped back through its return leg and crossed
+   *     the centreline three times.
    *
-   * The consequence is bounded and worth knowing: near the crossing the `(s, d)`
-   * projection is ambiguous, so a car there can be assigned the wrong distance
-   * along the lap. Everything away from it projects to within a fraction of a
-   * millimetre, which this test also asserts, so the ambiguity is local.
-   *
-   * Fixing it properly means redesigning the circuit, not tuning a number here.
+   * The first is a clearance question and the second is a topology question, so
+   * they need separate measures. Both are cheap to check and neither was.
    */
-  const hairpin = buildHandTracks().find((t) => t.name === "Hairpin")!;
-  const crossings = selfIntersections(hairpin);
+  for (const track of buildHandTracks()) {
+    // Topology: the centreline must not cross itself, or `(s, d)` is ambiguous and
+    // progress, lap counting and grid placement all break quietly.
+    const crossings = selfIntersections(track);
+    assert.equal(
+      crossings.length,
+      0,
+      `${track.name}: centreline crosses itself ${crossings.length} time(s)`,
+    );
 
-  assert.ok(crossings.length > 0, "the known crossing should still be detected");
-  assert.ok(crossings.length <= 6, `crossing count grew unexpectedly: ${crossings.length}`);
+    // Clearance: two parts of the track must be far enough apart that their
+    // SURFACES do not touch. Samples are only compared when they are far apart
+    // along the loop in both directions, which excludes the start/finish join.
+    const count = track.xs.length;
+    const minGap = Math.round(80 / track.spacing);
+    let closest = Infinity;
+    let where: [number, number] = [0, 0];
+    for (let i = 0; i < count; i += 2) {
+      for (let j = i + 2; j < count; j += 2) {
+        const along = Math.abs(i - j);
+        if (Math.min(along, count - along) < minGap) continue;
+        const dx = track.xs[i]! - track.xs[j]!;
+        const dy = track.ys[i]! - track.ys[j]!;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance < closest) {
+          closest = distance;
+          where = [track.xs[i]!, track.ys[i]!];
+        }
+      }
+    }
 
-  // Away from the crossing, projection must be exact.
-  const crossingDistances = new Set(crossings.flat().map((s) => Math.round(s / 50)));
-  let worstAway = 0;
-  for (let s = 0; s < hairpin.length; s += hairpin.length / 120) {
-    const point = pointAtDistance(hairpin, s);
-    const projection = projectToTrack(hairpin, point.x, point.y);
-    if (crossingDistances.has(Math.round(projection.s / 50))) continue;
-    let error = Math.abs(projection.s - s);
-    if (error > hairpin.length / 2) error = hairpin.length - error;
-    worstAway = Math.max(worstAway, error);
+    assert.ok(
+      closest > track.halfWidth * 2,
+      `${track.name}: two parts of the track come within ${closest.toFixed(1)} m, ` +
+        `but ${(track.halfWidth * 2).toFixed(0)} m is needed for the surfaces not to overlap ` +
+        `(near ${where[0].toFixed(0)}, ${where[1].toFixed(0)})`,
+    );
   }
-  assert.ok(
-    worstAway < 5,
-    `projection away from the crossing should be exact, worst error ${worstAway.toFixed(2)} m`,
-  );
 });
 
 test("track: self-intersection detection actually fires", () => {
@@ -96,14 +111,12 @@ test("track: self-intersection detection actually fires", () => {
 });
 
 test("track: projection round-trips along the whole centreline", () => {
-  // Skips the Hairpin, whose crossing makes the projection ambiguous there by
-  // design. That case is covered by its own test above.
+  // Every layout, now that none of them crosses itself.
   // The `(s, d)` projection is the inverse of placing a point at a distance, and
   // the two must agree. If they drift apart, a car sitting on the centreline
   // would not report being there, and every lookahead and progress calculation
   // downstream would be quietly wrong.
   for (const track of buildHandTracks()) {
-    if (track.name === "Hairpin") continue;
     let worstAlong = 0;
     let worstLateral = 0;
 
