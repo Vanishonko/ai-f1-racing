@@ -119,6 +119,14 @@ export interface RunOptions {
   seconds?: number;
   /** Which quantity the fitness is built on. Defaults to average speed. */
   objective?: Objective;
+  /**
+   * Overrides the top-speed weight for this run.
+   *
+   * Exists so the same search can be run with and without the term and the two compared, which is
+   * the only way to know whether it helps. A setting that can only be changed by editing the source
+   * is a setting nobody measures.
+   */
+  topSpeedWeight?: number;
   /** Per-car physics, so a trained driver can be evaluated on a modified car. */
   params?: CarParams;
   /** True to record a trace for playback. Off by default because it costs memory. */
@@ -144,6 +152,8 @@ export interface RunResult {
   fitness: number;
   /** Mean speed over the run [m/s]. The headline number the objective is built on. */
   averageSpeed: number;
+  /** Fastest speed reached anywhere in the run [m/s]. */
+  topSpeed: number;
   /**
    * Steering travel per hundred metres, in units of full lock.
    *
@@ -204,6 +214,20 @@ const FITNESS_WEIGHTS = {
    * rather than per second, and a driver is not penalised simply for being on a twisty circuit.
    */
   steeringWorkPenalty: 0.06,
+  /*
+   * Weight on the fastest speed reached anywhere in the run.
+   *
+   * ADDS A REWARD FOR OUTRIGHT SPEED, which a pace-based objective does not directly ask for.
+   * Average speed and top speed are not the same quantity: a driver can hold a respectable average
+   * by never slowing much while never using the throttle properly either, and that is what the first
+   * trained driver did — FULL THROTTLE FOR EIGHT PER CENT of a run, a peak of 196 km/h against a car
+   * capable of 308.
+   *
+   * Deliberately small. The measured deficit is mostly SUSTAINED speed rather than peak, so this
+   * exists to give the search a gradient towards using the throttle at all, not to let one fast
+   * straight outscore a clean lap.
+   */
+  topSpeedWeight: 0.15,
   /** Utilization below this is free; above it costs. */
   utilizationFloor: 0.85,
   /**
@@ -308,6 +332,7 @@ export const runPolicy = (
    */
   let steeringWork = 0;
   let previousSteer = 0;
+  let topSpeed = 0;
 
   /*
    * The car's lock and wheelspin timers are CUMULATIVE, so they are differenced rather
@@ -349,6 +374,9 @@ export const runPolicy = (
     if (spinDelta > 0) wheelspinSteps++;
     steeringWork += Math.abs(car.steerAngle - previousSteer) / MAX_STEER_ANGLE;
     previousSteer = car.steerAngle;
+
+    const speedNow = Math.sqrt(car.vx * car.vx + car.vy * car.vy);
+    if (speedNow > topSpeed) topSpeed = speedNow;
 
     controls.throttle = 0;
     controls.brake = 0;
@@ -395,8 +423,14 @@ export const runPolicy = (
   const averageSpeed = seconds > 0 ? distance / seconds : 0;
   // Steering work per metre covered, so a longer run does not pay more for the same habit.
   const steeringWorkPerMetre = distance > 1 ? (steeringWork / distance) * 100 : 0;
+  /*
+   * The top-speed term is gated by the same on-track factor, so speed bought by leaving the circuit
+   * does not pay. The deficit this addresses is real, but not at the cost of the thing the gate
+   * exists to enforce.
+   */
   const fitness =
-    averageSpeed * w.perMetrePerSecond * gate -
+    averageSpeed * w.perMetrePerSecond * gate +
+    topSpeed * (options.topSpeedWeight ?? w.topSpeedWeight) * gate -
     averageSpeed * overLimit * w.utilizationPenalty -
     averageSpeed * lockedFraction * w.lockPenalty -
     averageSpeed * wheelspinFraction * w.wheelspinPenalty -
@@ -411,6 +445,7 @@ export const runPolicy = (
     laps,
     fitness,
     averageSpeed,
+    topSpeed,
     steeringWork: steeringWorkPerMetre,
   };
 };
