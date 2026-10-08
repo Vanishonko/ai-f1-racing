@@ -10,9 +10,9 @@
  */
 
 import { parentPort } from "node:worker_threads";
-import { buildCircuitByKey } from "./trackLibrary.ts";
-import { runDriver, type Objective } from "./environment.ts";
-import { createDriver, PARAMETER_COUNT } from "./driver.ts";
+import { buildCircuitByKey } from "../../engine/src/trackLibrary.ts";
+import { runDriver, type Objective } from "../../engine/src/environment.ts";
+import { createDriver, PARAMETER_COUNT } from "../../engine/src/driver.ts";
 
 interface Request {
   genes: number[];
@@ -28,7 +28,7 @@ const port = parentPort;
  * Circuits are built once and kept. A request names its circuit, and building one is more expensive
  * than the evaluation itself, so rebuilding per request would dominate the cost of a small one.
  */
-import type { Track } from "./track.ts";
+import type { Track } from "../../engine/src/track.ts";
 
 const circuits = new Map<string, Track>();
 

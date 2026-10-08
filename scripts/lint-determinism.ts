@@ -15,7 +15,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 /** Files subject to the contract. */
-const CORE_DIRS = ["packages/engine/src"];
+const CORE_DIRS = ["packages/engine/src", "packages/trainer/src"];
 
 /**
  * Files EXEMPT from the transcendental ban because they bake their tables once at

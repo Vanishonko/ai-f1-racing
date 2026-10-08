@@ -1,225 +1,50 @@
-resuming from generation 294, whose recorded fitness was 5063
+resuming from generation 295, whose recorded fitness was 5063
 training on Club Circuit (3521 m)
-24 perturbations per generation, 90 s per evaluation, seed 1
-675 parameters, 13h 00m 00s budget
+32 perturbations per generation, 90 s per evaluation, seed 1
+675 parameters, 3h 00m 00s budget
 checkpointing to /Users/vanish/Documents/ai f1/checkpoints/club.json
 
-gen      best-ever    mean dist   on track    elapsed
- 300         5063         2656        96%    0h 00m 52s
- 325         5063         2552        86%    0h 04m 15s
- 350         5063         2422        93%    0h 07m 45s
- 375         5063         2371        94%    0h 11m 14s
- 400         5063         2355        72%    0h 14m 25s
- 425         5063         1810        85%    0h 17m 41s
- 450         5063         2170        96%    0h 21m 20s
- 475         5063         1663        89%    0h 24m 48s
- 500         5063         2183        93%    0h 28m 15s
- 525         5063         1800        79%    0h 31m 51s
- 550         5063         2357        89%    0h 35m 22s
- 575         5063         2615        97%    0h 38m 55s
- 600         5063         2452        93%    0h 42m 26s
- 625         5063         2590        96%    0h 45m 57s
- 650         5063         2514        93%    0h 49m 29s
- 675         5063         2349        83%    0h 53m 06s
- 700         5063         2125        71%    0h 56m 29s
- 725         5063         2263        81%    1h 00m 02s
- 750         5063         1942        75%    1h 03m 26s
- 775         5063         2175        76%    1h 06m 49s
- 800         5063         2540        90%    1h 10m 11s
- 825         5063         2546        90%    1h 13m 42s
- 850         5063         2503        85%    1h 17m 18s
- 875         5063         2526        88%    1h 20m 50s
- 900         5063         2325        83%    1h 24m 16s
- 925         5063         2696        89%    1h 27m 49s
- 950         5063         2719        90%    1h 31m 24s
- 975         5063         2809        91%    1h 34m 39s
-1000         5063         2719        88%    1h 38m 04s
-1025         5063         1945        59%    1h 41m 10s
-1050         5063         2450        77%    1h 44m 19s
-1075         5063         2300        69%    1h 47m 25s
-1100         5063         2353        78%    1h 50m 38s
-1125         5063         2435        84%    1h 53m 57s
-1150         5063         1129        36%    1h 56m 21s
-1175         5063         1949        91%    1h 59m 03s
-1200         5063         1779        72%    2h 02m 12s
-1225         5063         2236        89%    2h 05m 41s
-1250         5063         2419        96%    2h 09m 02s
-1275         5063         2383        93%    2h 12m 18s
-1300         5063         2115        82%    2h 15m 44s
-1325         5063         2191        85%    2h 19m 08s
-1350         5063         2582        92%    2h 22m 34s
-1375         5063         2463        95%    2h 26m 00s
-1400         5063         2350        95%    2h 29m 23s
-1425         5063         2391        91%    2h 32m 47s
-1450         5063         2070        77%    2h 36m 01s
-1475         5063         2656        93%    2h 39m 35s
-1500         5063         2461        93%    2h 43m 09s
-1525         5063         2580        95%    2h 46m 43s
-1550         5063         2533        90%    2h 50m 18s
-1575         5063         2492        93%    2h 53m 53s
-1600         5063         2384        88%    2h 57m 28s
-1625         5063         1546        53%    3h 00m 54s
-1650         5063         1984        67%    3h 04m 06s
-1675         5063         2489        95%    3h 07m 22s
-1700         5063         2306        82%    3h 10m 58s
-1725         5063         2155        77%    3h 14m 11s
-1750         5063         2650        97%    3h 17m 34s
-1775         5063         2509        98%    3h 21m 07s
-1800         5063         2175        82%    3h 24m 37s
-1825         5063         2225        86%    3h 28m 12s
-1850         5063         2150        82%    3h 31m 43s
-1875         5063         2363        84%    3h 35m 12s
-1900         5063         2504        92%    3h 38m 43s
-1925         5063         2613        97%    3h 42m 24s
-1950         5063         2706        98%    3h 46m 06s
-1975         5063         2790        99%    3h 49m 53s
-2000         5063         2681        94%    3h 53m 39s
-2025         5063         2439        88%    3h 57m 19s
-2050         5063         2798        98%    4h 01m 04s
-2075         5063         2808        98%    4h 04m 50s
-2100         5063         2882        98%    4h 08m 36s
-2125         5063         2850        99%    4h 12m 22s
-2150         5063         2927        99%    4h 16m 08s
-2175         5063         2437        98%    4h 19m 53s
-2200         5063         2893        99%    4h 23m 38s
-2225         5063         2729        95%    4h 27m 21s
-2250         5063         2837        96%    4h 31m 05s
-2275         5063         2608        89%    4h 34m 46s
-2300         5063         2452        82%    4h 38m 25s
-2325         5063         2865        97%    4h 41m 59s
-2350         5063         2417        84%    4h 45m 40s
-2375         5063         2569        91%    4h 49m 17s
-2400         5063         2793        99%    4h 53m 03s
-2425         5063         2727        96%    4h 56m 48s
-2450         5063         2805        99%    5h 00m 29s
-2475         5063         2864       100%    5h 04m 14s
-2500         5063         2354        79%    5h 07m 52s
-2525         5063         2979       100%    5h 11m 36s
-2550         5063         2914        99%    5h 15m 21s
-2575         5063         2891        98%    5h 19m 04s
-2600         5063         2908       100%    5h 22m 48s
-2625         5063         2885        99%    5h 26m 30s
-2650         5063         2906        97%    5h 30m 15s
-2675         5063         2906        98%    5h 33m 54s
-2700         5063         2908        99%    5h 37m 41s
-2725         5063         2969       100%    5h 41m 28s
-2750         5063         2995        99%    5h 45m 13s
-2775         5063         2807        96%    5h 48m 53s
-2800         5063         2811        98%    5h 52m 37s
-2825         5063         2859        97%    5h 56m 13s
-2850         5063         2663        91%    5h 59m 53s
-2875         5063         2740        95%    6h 03m 31s
-2900         5063         2850        99%    6h 07m 13s
-2925         5063         2824        97%    6h 10m 38s
-2950         5063         2914       100%    6h 14m 22s
-2975         5063         2852        98%    6h 18m 09s
-3000         5063         2901        99%    6h 21m 53s
-3025         5063         2855        99%    6h 25m 39s
-3050         5063         3006        94%    6h 29m 16s
-3075         5063         2998        95%    6h 32m 53s
-3100         5063         2968        92%    6h 36m 28s
-3125         5063         2912        94%    6h 39m 54s
-3150         5063         2887        94%    6h 43m 32s
-3175         5063         2917        98%    6h 47m 08s
-3200         5063         2939        97%    6h 50m 54s
-3225         5063         2555        85%    6h 54m 36s
-3250         5063         2934        99%    6h 58m 19s
-3275         5063         2900        98%    7h 02m 07s
-3300         5063         2856        99%    7h 05m 52s
-3325         5063         2879        97%    7h 09m 39s
-3350         5063         2749        95%    7h 13m 21s
-3375         5063         2870        97%    7h 17m 07s
-3400         5063         2763        92%    7h 20m 52s
-3425         5063         2949       100%    7h 24m 32s
-3450         5063         2948       100%    7h 28m 20s
-3475         5063         2896        98%    7h 32m 04s
-3500         5063         2946       100%    7h 35m 51s
-3525         5063         3055        99%    7h 39m 40s
-3550         5063         2988       100%    7h 43m 29s
-3575         5063         2984        99%    7h 47m 16s
-3600         5063         2969        98%    7h 51m 05s
-3625         5063         2997        98%    7h 54m 53s
-3650         5063         3015        99%    7h 58m 38s
-3675         5063         3008        99%    8h 02m 27s
-3700         5063         2960        99%    8h 06m 16s
-3725         5063         2988        99%    8h 09m 59s
-3750         5063         2922        97%    8h 13m 48s
-3775         5063         2894        97%    8h 17m 35s
-3800         5063         2941        99%    8h 21m 24s
-3825         5063         2783        95%    8h 25m 08s
-3850         5063         2902        99%    8h 28m 56s
-3875         5063         2881        98%    8h 32m 38s
-3900         5063         2775        98%    8h 36m 25s
-3925         5063         2585        89%    8h 40m 10s
-3950         5063         2832        99%    8h 43m 52s
-3975         5063         2756        96%    8h 47m 39s
-4000         5063         2667        94%    8h 51m 21s
-4025         5063         2685        96%    8h 55m 09s
-4050         5063         2714        97%    8h 58m 58s
-4075         5063         2718        98%    9h 02m 47s
-4100         5063         2755        99%    9h 06m 38s
-4125         5063         2787        98%    9h 10m 28s
-4150         5063         2692        97%    9h 14m 17s
-4175         5063         2722        99%    9h 18m 07s
-4200         5063         2763       100%    9h 21m 55s
-4225         5063         2790        99%    9h 25m 46s
-4250         5063         2818       100%    9h 29m 37s
-4275         5063         2788        99%    9h 33m 28s
-4300         5063         2863       100%    9h 37m 18s
-4325         5063         2891        99%    9h 41m 10s
-4350         5063         2922        99%    9h 45m 01s
-4375         5063         2952       100%    9h 48m 53s
-4400         5063         2797        95%    9h 52m 43s
-4425         5063         2962       100%    9h 56m 33s
-4450         5063         2869        96%   10h 00m 21s
-4475         5063         2947       100%   10h 04m 06s
-4500         5063         2889        99%   10h 07m 55s
-4525         5063         2735        94%   10h 11m 44s
-4550         5063         2817        98%   10h 15m 30s
-4575         5063         2763        94%   10h 19m 20s
-4600         5063         2875       100%   10h 23m 09s
-4625         5063         2875        99%   10h 26m 59s
-4650         5063         2844        97%   10h 30m 49s
-4675         5063         2819        94%   10h 34m 39s
-4700         5063         2827        97%   10h 38m 25s
-4725         5063         2813        97%   10h 42m 11s
-4750         5063         2940       100%   10h 45m 59s
-4775         5063         1714        58%   10h 49m 25s
-4800         5063         2589        94%   10h 52m 47s
-4825         5063         2701        92%   10h 56m 27s
-4850         5063         2434        87%   11h 00m 02s
-4875         5063         2750       100%   11h 03m 41s
-4900         5063         2950        98%   11h 07m 31s
-4925         5063         2653        88%   11h 11m 11s
-4950         5063         2793        92%   11h 14m 56s
-4975         5063         2572        82%   11h 18m 32s
-5000         5063         2914        98%   11h 22m 12s
-5025         5063         2792        95%   11h 25m 53s
-5050         5063         2882        98%   11h 29m 37s
-5075         5063         2913        97%   11h 33m 26s
-5100         5063         2939        98%   11h 37m 11s
-5125         5063         2830        90%   11h 40m 56s
-5150         5063         2936        95%   11h 44m 31s
-5175         5063         3037       100%   11h 48m 22s
-5200         5063         3025       100%   11h 52m 14s
-5225         5063         2948        95%   11h 56m 00s
-5250         5063         2845        93%   11h 59m 49s
-5275         5063         3036        99%   12h 03m 37s
-5300         5063         2889        95%   12h 07m 27s
-5325         5063         2945        96%   12h 11m 14s
-5350         5063         3051       100%   12h 15m 02s
-5375         5063         3055       100%   12h 18m 55s
-5400         5063         3119       100%   12h 22m 47s
-5425         5063         3053        98%   12h 26m 38s
-5450         5063         3028        99%   12h 30m 29s
-5475         5063         3000        97%   12h 34m 18s
-5500         5063         3072       100%   12h 38m 05s
-5525         5063         3049        98%   12h 41m 56s
-5550         5063         3042        98%   12h 45m 45s
-5575         5063         2896        94%   12h 49m 32s
-5600         5063         2851        94%   12h 53m 16s
-5625         5063         3070       100%   12h 57m 06s
-
-finished after 5351 generations in 13h 00m 09s
-best driver over 120 s: 4296 m, 1 laps, on track 93%, mean tire use 0.52
-saved to /Users/vanish/Documents/ai f1/checkpoints/club.json
+evaluating across 7 worker threads
+gen      best (m/s)   mean dist   on track    elapsed
+  WARNING after generation 296: the search centre (1) has fallen far below its best (26); it has wandered into a worse region
+ 300         66.3         1473        43%    0h 00m 07s
+  WARNING after generation 301: the search centre (-1) has fallen far below its best (67); it has wandered into a worse region
+  WARNING after generation 304: the search centre (2) has fallen far below its best (81); it has wandered into a worse region
+  WARNING after generation 306: the search centre (13) has fallen far below its best (81); it has wandered into a worse region
+  WARNING after generation 309: the search centre (1) has fallen far below its best (85); it has wandered into a worse region
+  WARNING after generation 311: the search centre (22) has fallen far below its best (85); it has wandered into a worse region
+  WARNING after generation 315: the search centre (14) has fallen far below its best (85); it has wandered into a worse region
+  WARNING after generation 319: the search centre (14) has fallen far below its best (85); it has wandered into a worse region
+  WARNING after generation 321: the search centre (17) has fallen far below its best (85); it has wandered into a worse region
+  WARNING after generation 323: the search centre (3) has fallen far below its best (85); it has wandered into a worse region
+  WARNING after generation 331: the search centre (29) has fallen far below its best (85); it has wandered into a worse region
+  WARNING after generation 335: the search centre (6) has fallen far below its best (85); it has wandered into a worse region
+  WARNING after generation 341: the search centre (23) has fallen far below its best (85); it has wandered into a worse region
+  WARNING after generation 343: the search centre (16) has fallen far below its best (85); it has wandered into a worse region
+  WARNING after generation 345: the search centre (29) has fallen far below its best (85); it has wandered into a worse region
+  WARNING after generation 349: the search centre (20) has fallen far below its best (85); it has wandered into a worse region
+  WARNING after generation 361: the search centre (1) has fallen far below its best (85); it has wandered into a worse region
+  WARNING after generation 365: the search centre (22) has fallen far below its best (85); it has wandered into a worse region
+  WARNING after generation 367: the search centre (14) has fallen far below its best (85); it has wandered into a worse region
+  WARNING after generation 369: the search centre (17) has fallen far below its best (85); it has wandered into a worse region
+  WARNING after generation 371: the search centre (24) has fallen far below its best (85); it has wandered into a worse region
+  WARNING after generation 373: the search centre (24) has fallen far below its best (85); it has wandered into a worse region
+  WARNING after generation 380: the search centre (15) has fallen far below its best (87); it has wandered into a worse region
+  WARNING after generation 388: the search centre (29) has fallen far below its best (87); it has wandered into a worse region
+  WARNING after generation 394: the search centre (19) has fallen far below its best (87); it has wandered into a worse region
+  WARNING after generation 398: the search centre (21) has fallen far below its best (87); it has wandered into a worse region
+ 400         87.1         1629        71%    0h 03m 37s
+  WARNING after generation 402: the search centre (19) has fallen far below its best (87); it has wandered into a worse region
+  WARNING after generation 404: the search centre (19) has fallen far below its best (87); it has wandered into a worse region
+  WARNING after generation 412: the search centre (14) has fallen far below its best (87); it has wandered into a worse region
+  WARNING after generation 414: the search centre (0) has fallen far below its best (87); it has wandered into a worse region
+  WARNING after generation 416: the search centre (22) has fallen far below its best (87); it has wandered into a worse region
+  WARNING after generation 420: the search centre (43) has fallen far below its best (87); it has wandered into a worse region
+  WARNING after generation 426: the search centre (22) has fallen far below its best (87); it has wandered into a worse region
+  WARNING after generation 432: the search centre (1) has fallen far below its best (87); it has wandered into a worse region
+  WARNING after generation 436: the search centre (15) has fallen far below its best (87); it has wandered into a worse region
+  WARNING after generation 438: the search centre (1) has fallen far below its best (87); it has wandered into a worse region
+  WARNING after generation 440: the search centre (0) has fallen far below its best (87); it has wandered into a worse region
+  WARNING after generation 444: the search centre (21) has fallen far below its best (87); it has wandered into a worse region
+  WARNING after generation 446: the search centre (22) has fallen far below its best (87); it has wandered into a worse region
+  WARNING after generation 452: the search centre (0) has fallen far below its best (87); it has wandered into a worse region

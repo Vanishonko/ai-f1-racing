@@ -36,7 +36,34 @@ import { createDriver, PARAMETER_COUNT, type Driver } from "./driver.ts";
 import { createRng, type Rng } from "./rng.ts";
 import { logUnit } from "./activation.ts";
 import type { Track } from "./track.ts";
-import type { EvaluationPool } from "./evaluationPool.ts";
+/**
+ * The shape of an evaluation pool, declared here rather than imported.
+ *
+ * The engine runs in a browser as well as in Node, and a worker pool is a Node thing. Depending on
+ * one from the engine would drag `node:worker_threads` into the browser bundle, which is exactly
+ * what happened and what broke the viewer build. The engine asks for something that can score
+ * parameters in parallel and does not care what it is.
+ */
+export interface EvaluationPool {
+  run(requests: EvaluationRequest[]): Promise<EvaluationResult[]>;
+  size: number;
+  close(): Promise<void>;
+}
+
+export interface EvaluationRequest {
+  genes: Float64Array;
+  circuit: string;
+  seconds: number;
+  objective: "speed" | "distance";
+}
+
+export interface EvaluationResult {
+  fitness: number;
+  distance: number;
+  averageSpeed: number;
+  onTrackFraction: number;
+  laps: number;
+}
 
 export interface EvolutionConfig {
   /** Perturbations per generation. Each is evaluated twice, so this is half the cost. */

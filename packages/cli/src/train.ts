@@ -25,7 +25,7 @@ import {
   type TrainerState,
 } from "../../engine/src/evolve.ts";
 import { runDriver, DEFAULT_RUN_SECONDS } from "../../engine/src/environment.ts";
-import { createEvaluationPool } from "../../engine/src/evaluationPool.ts";
+import { createEvaluationPool } from "../../trainer/src/evaluationPool.ts";
 import { PARAMETER_COUNT } from "../../engine/src/driver.ts";
 import type { Track } from "../../engine/src/track.ts";
 

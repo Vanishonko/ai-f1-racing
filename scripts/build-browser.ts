@@ -100,31 +100,18 @@ const transpile = async (src: string, out: string): Promise<string[]> => {
 const engineModules = await transpile(ENGINE_SRC, ENGINE_OUT);
 const viewerModules = await transpile(VIEWER_SRC, VIEWER_OUT);
 
-/**
- * Publishes trained drivers so the viewer can fetch them.
+/*
+ * Checkpoints are NOT copied into the build output.
  *
- * Checkpoints live outside `public/` because they are produced by training rather than by the
- * build, and they can be large. Copying them in is what turns a finished run into something
- * watchable: the viewer fetches `/checkpoints/<circuit>.json` and drives from it.
+ * They used to be, and it was a mistake with a specific symptom: the build took a snapshot, so the
+ * viewer showed whichever driver existed when the build last ran and a live training run was
+ * invisible. Worse, the status file the training panel polls did not exist at build time and so was
+ * never copied at all — the panel was wired up correctly and could never have worked.
  *
- * A missing directory is normal — nothing has been trained yet — and is not an error.
+ * Training output is now served straight from where the trainer writes it, by `serve.ts`. Copying
+ * it here would reintroduce exactly the staleness this removed.
  */
-const CHECKPOINTS = join(ROOT, "checkpoints");
-const CHECKPOINT_OUT = join(ROOT, "public/checkpoints");
-let published = 0;
-try {
-  await mkdir(CHECKPOINT_OUT, { recursive: true });
-  for (const entry of await readdir(CHECKPOINTS, { withFileTypes: true })) {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-    // Status files are published too, so the viewer can show a run in progress.
-    const destination = join(CHECKPOINT_OUT, entry.name);
-    await cp(join(CHECKPOINTS, entry.name), destination);
-    if (!entry.name.endsWith(".status.json")) published++;
-  }
-} catch {
-  // No checkpoints yet. The viewer reports that per circuit rather than failing.
-}
 
 console.log(`engine: ${engineModules.length} modules -> public/engine/`);
 console.log(`viewer: ${viewerModules.length} modules -> public/viewer/`);
-console.log(`drivers: ${published} checkpoint(s) -> public/checkpoints/`);
+// Checkpoints are served live by `serve.ts`; see the note above.

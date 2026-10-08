@@ -19,7 +19,7 @@
 import { buildCircuitByKey } from "../packages/engine/src/trackLibrary.ts";
 import { createTrainer, trainGeneration, bestDriver, assessRun } from "../packages/engine/src/evolve.ts";
 import { runDriver } from "../packages/engine/src/environment.ts";
-import { createEvaluationPool } from "../packages/engine/src/evaluationPool.ts";
+import { createEvaluationPool } from "../packages/trainer/src/evaluationPool.ts";
 
 const arg = (name: string, fallback: number): number => {
   const index = process.argv.indexOf(`--${name}`);
