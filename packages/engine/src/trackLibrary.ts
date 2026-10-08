@@ -37,6 +37,7 @@ import {
 import { roundCorners } from "./fillet.ts";
 import { SPA_FRANCORCHAMPS } from "./spaFrancorchamps.ts";
 import { BAKU_CITY } from "./bakuCity.ts";
+import { CHICANE as CHICANE_RING } from "./chicane.ts";
 
 /**
  * A generous oval: two long straights joined by sweeping constant-radius turns.
@@ -101,15 +102,8 @@ export const HAIRPIN: TrackControlPoints = {
  * through it.
  */
 export const CHICANE: TrackControlPoints = {
-  halfWidth: 7.5,
-  points: roundCorners(
-    [
-      [-420, 170], [120, 170], [300, 145], [430, 70], [460, -30],
-      [390, -110], [270, -95], [200, -150], [290, -215], [170, -275],
-      [-40, -300], [-250, -270], [-400, -185], [-480, -60], [-470, 80],
-    ],
-    55,
-  ),
+  halfWidth: 9,
+  points: CHICANE_RING.map(([x, y]) => [x, y] as [number, number]),
 };
 /**
  * A club circuit built around a tight hairpin.
@@ -159,18 +153,13 @@ export const CHICANE: TrackControlPoints = {
 export const CLUB: TrackControlPoints = {
   halfWidth: 8.5,
   points: [
-    // Opening straight into the signature right-left flick.
     [-240, -170], [60, -170], [220, -160], [310, -120], [330, -50],
     [300, 10], [240, 35], [180, 20], [140, -30], [100, -85],
-    // Long left-hand sweep across the top, opened out for a genuine fast section.
     [30, -120], [-70, -125], [-180, -95], [-270, -40], [-320, 40],
-    [-358, 134], [-302, 213], [-190, 263], [-45, 274], [101, 258],
-    [224, 213], [314, 140], [370, 45],
-    // End complex down the right side into a properly tight final corner, then
-    // back to the line. The apex is deliberately pulled in so the last corner is
-    // the slowest on the circuit and the long run down to it is a braking zone.
-    [360, -50], [380, -140], [420, -209], [200, -305], [40, -315],
-    [-120, -305], [-230, -265],
+    [-358, 134], [-302, 213], [-190, 263], [-45, 274], [-79, 300],
+    [101, 258], [224, 213], [314, 140], [370, 45], [360, -50],
+    [380, -140], [420, -209], [200, -305], [40, -315], [-120, -305],
+    [-230, -265],
   ],
 };
 

@@ -36,7 +36,6 @@ const BAKING_EXEMPT = new Set([
   // It is listed explicitly rather than lumped in with the baking files because the
   // reason is different: those bake tables once and the values are then fixed,
   // whereas this simply never executes inside the simulation.
-  "packages/engine/src/trackDesign.ts",
 ]);
 
 /**
