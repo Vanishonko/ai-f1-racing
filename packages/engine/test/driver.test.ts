@@ -7,6 +7,7 @@ import {
   PARAMETER_COUNT,
   HIDDEN_SIZE,
   OUTPUT_SIZE,
+  PARAMETER_OFFSETS,
   type Controls,
 } from "../src/driver.ts";
 import { createObservation } from "../src/sense.ts";
@@ -28,11 +29,13 @@ const seeded = (seed: number): (() => number) => {
 const controls = (): Controls => ({ throttle: 0, brake: 0, steer: 0 });
 
 test("driver: the parameter count matches the declared topology", () => {
+  const inputs = createObservation().values.length;
   assert.equal(
     PARAMETER_COUNT,
-    HIDDEN_SIZE * createObservation().values.length + HIDDEN_SIZE + OUTPUT_SIZE * HIDDEN_SIZE + OUTPUT_SIZE,
+    HIDDEN_SIZE * inputs + HIDDEN_SIZE + OUTPUT_SIZE * HIDDEN_SIZE + OUTPUT_SIZE,
     "the flat parameter layout must match the layers it describes",
   );
+  assert.equal(PARAMETER_OFFSETS.outputBiases + OUTPUT_SIZE, PARAMETER_COUNT, "the offsets must tile the vector exactly");
   const driver = createDriver(undefined, seeded(1));
   assert.equal(driver.genes.length, PARAMETER_COUNT);
 });
@@ -147,4 +150,48 @@ test("activation: saturateUnit is monotonic, smooth and bounded", () => {
   // Never reaches the bounds, so a search always has a gradient to follow.
   assert.ok(saturateUnit(1e6) < 1, "the upper bound is an asymptote, not a clamp");
   assert.ok(saturateUnit(-1e6) > 0, "the lower bound is an asymptote, not a clamp");
+});
+
+test("driver: the parameter layout the network reads is the layout it declares", () => {
+  /*
+   * THE BUG THIS EXISTS FOR, and it is the reason a "does the throttle work" test matters.
+   * `drive` originally read each unit's bias immediately after that unit's weights — the
+   * natural way to write the loop — while `PARAMETER_OFFSETS` and the initialiser lay out all
+   * weights first and all biases after. So every bias written by the initialiser was ignored
+   * and every weight was read from the wrong place.
+   *
+   * It survived because a uniformly-zero gene vector produces neutral controls under either
+   * ordering, so nothing looked wrong until a test set a specific bias and asked whether the
+   * network responded.
+   *
+   * This pins the contract directly: set one hidden bias, and require the corresponding unit
+   * to be driven. Nothing else in the vector is touched, so the only way the unit can move is
+   * if its bias is read from the declared offset.
+   */
+  const observation = createObservation();
+  const out = controls();
+  const genes = new Float64Array(PARAMETER_COUNT);
+
+  const unit = 5;
+  genes[PARAMETER_OFFSETS.hiddenBiases + unit] = 4;
+  // One output weight, so a driven unit produces a visible control.
+  genes[PARAMETER_OFFSETS.outputWeights + HIDDEN_SIZE + unit] = 3;
+
+  drive(createDriver(genes, seeded(1)), observation, out);
+  const driver = createDriver(genes, seeded(1));
+  drive(driver, observation, out);
+
+  assert.ok(
+    driver.hidden[unit]! > 0.99,
+    `hidden unit ${unit} should be driven by its bias: got ${driver.hidden[unit]}`,
+  );
+  // Every other unit has no bias, so none of them should be driven.
+  for (let other = 0; other < HIDDEN_SIZE; other++) {
+    if (other === unit) continue;
+    assert.ok(
+      Math.abs(driver.hidden[other]!) < 1e-9,
+      `hidden unit ${other} was driven without a bias: ${driver.hidden[other]}`,
+    );
+  }
+  assert.ok(out.brake > 0.9, `the driven unit should push the brake output up: ${out.brake}`);
 });

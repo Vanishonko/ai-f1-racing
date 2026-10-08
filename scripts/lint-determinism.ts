@@ -32,6 +32,10 @@ const BAKING_EXEMPT = new Set([
   // Bakes the tanh table at module load. The single `Math.tanh` call is the table
   // construction and runs once; everything afterwards reads the table.
   "packages/engine/src/activation.ts",
+  // Caches each circuit's start state once, including its initial heading, which needs one
+  // `atan2` to turn a track direction into an angle. Computed once per circuit and kept,
+  // so it is not on any per-tick path.
+  "packages/engine/src/environment.ts",
   // Design-time tooling, not runtime. This module turns a corner list into a
   // circuit at LOAD time and nothing in it runs during a physics tick, so the
   // cross-engine float guarantee the contract exists to protect does not apply.

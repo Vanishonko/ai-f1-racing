@@ -43,6 +43,21 @@ export const OUTPUT_SIZE = 3;
 export const PARAMETER_COUNT =
   HIDDEN_SIZE * OBSERVATION_SIZE + HIDDEN_SIZE + OUTPUT_SIZE * HIDDEN_SIZE + OUTPUT_SIZE;
 
+/**
+ * Where each layer's parameters begin in the flat vector.
+ *
+ * Exported so nothing has to reconstruct the layout from the sizes. A test that got this
+ * arithmetic wrong would be silently testing the wrong weights, and one did: it computed
+ * the offset from a constant it had failed to import, wrote to index `NaN`, and then
+ * reported that a full-throttle driver could not move the car.
+ */
+export const PARAMETER_OFFSETS = {
+  hiddenWeights: 0,
+  hiddenBiases: HIDDEN_SIZE * OBSERVATION_SIZE,
+  outputWeights: HIDDEN_SIZE * OBSERVATION_SIZE + HIDDEN_SIZE,
+  outputBiases: HIDDEN_SIZE * OBSERVATION_SIZE + HIDDEN_SIZE + OUTPUT_SIZE * HIDDEN_SIZE,
+} as const;
+
 /** A driver's controls for one tick, all in the units `stepCar` expects. */
 export interface Controls {
   throttle: number;
@@ -115,23 +130,40 @@ export const drive = (driver: Driver, observation: Observation, out: Controls): 
   const hidden = driver.hidden;
   const values = observation.values;
 
-  let at = 0;
+  /*
+   * The read order MUST match `PARAMETER_OFFSETS` and `randomGenes`: all weights for a
+   * layer, then all its biases.
+   *
+   * An earlier version read each unit's bias immediately after that unit's weights, which
+   * is the natural way to write the loop and is wrong — it walks the vector in a different
+   * order from the one the layout declares. The biases then landed on weight positions, so
+   * every bias the initialiser wrote was ignored and every weight it wrote was read as
+   * something else. The network still ran and produced plausible-looking controls, which is
+   * exactly why it survived: a uniformly-zero gene vector gives neutral controls either way,
+   * so only a test that sets a specific bias could see it.
+   */
+  const hiddenBiasAt = PARAMETER_OFFSETS.hiddenBiases;
+  const outputWeightAt = PARAMETER_OFFSETS.outputWeights;
+  const outputBiasAt = PARAMETER_OFFSETS.outputBiases;
+
   for (let unit = 0; unit < HIDDEN_SIZE; unit++) {
     let sum = 0;
+    const weightAt = unit * OBSERVATION_SIZE;
     for (let input = 0; input < OBSERVATION_SIZE; input++) {
-      sum += genes[at++]! * values[input]!;
+      sum += genes[weightAt + input]! * values[input]!;
     }
-    sum += genes[at++]!;
+    sum += genes[hiddenBiasAt + unit]!;
     hidden[unit] = tanh(sum);
   }
 
   const outputs = driver.outputs;
   for (let output = 0; output < OUTPUT_SIZE; output++) {
     let sum = 0;
+    const weightAt = outputWeightAt + output * HIDDEN_SIZE;
     for (let unit = 0; unit < HIDDEN_SIZE; unit++) {
-      sum += genes[at++]! * hidden[unit]!;
+      sum += genes[weightAt + unit]! * hidden[unit]!;
     }
-    sum += genes[at++]!;
+    sum += genes[outputBiasAt + output]!;
     outputs[output] = sum;
   }
 

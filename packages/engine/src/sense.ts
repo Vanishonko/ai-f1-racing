@@ -44,9 +44,11 @@ const RAY_HALF_ANGLE = 1.0;
 /**
  * Inputs per observation.
  *
- * Laid out as: ray fan, then speed and control state, then attitude, then tires.
- * Grouped so the layout is readable in a debugger rather than being an anonymous block
- * of sixty floats.
+ * Laid out as: ray fan, then speed and control state, then attitude, then tires. Grouped so
+ * the layout is readable in a debugger rather than being an anonymous block of floats.
+ *
+ * ONE SIZE, ONE PLACE. The driver derives its parameter count from this, so the two cannot
+ * disagree about how many inputs there are.
  */
 export const OBSERVATION_SIZE =
   RAY_COUNT * 2 +   // each ray: proximity, and lateral offset of the track edge
