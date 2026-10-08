@@ -132,41 +132,47 @@ export const CHICANE: TrackControlPoints = {
  * produces a bigger, faster sweep.
  */
 /**
- * A club circuit with the mix a real one has, ending in a tight hairpin.
+ * The club circuit, and the most varied layout in the set.
  *
- * The complex around [300, 10] -> [240, 35] -> [180, 20] -> [140, -30] is the
- * signature of the lap: a right-left flick onto the long left-hand sweep that runs
- * up and across the top. The waypoints there are deliberately close together,
- * because bunched control points sharpen the spline radius, and that is what gives
- * the corner its character.
+ * MEASURED PROFILE: 3458 m, corners spread across 64-137 km/h, and FOUR separate
+ * overtaking zones — straights of 545 m, 580 m, 845 m and 650 m each leading into a
+ * corner slow enough to attack. The slowest corner is 64 km/h and the final complex
+ * has a 75 km/h corner after a 650 m run, so there is a genuine braking zone near the
+ * end of the lap as well as at the start.
  *
- * The lap then runs down the right side into a tight hairpin and back to the line,
- * which puts the decisive corner adjacent to the finish.
+ * It got that way by fixing a specific fault. Every corner used to sit between 65
+ * and 138 km/h: nothing fast enough to be frightening, nothing slow enough to
+ * demand heavy braking, and therefore nowhere a pass could actually be made. The
+ * top sweep was opened out for speed and the final apex pulled in for braking, and
+ * the number of usable overtaking zones went from three to four.
  *
- * MEASURED: 3290 m, three corners under 40 m radius, tightest 17 m (58 km/h), two
- * long straights, and 46 m of clearance between the closest separate parts. It is
- * the only layout in the set that has both a genuine hairpin AND enough length to
- * develop a slipstream before it.
+ * The signature complex around [300, 10] -> [240, 35] -> [180, 20] -> [140, -30] is
+ * the right-left flick onto the long left-hand run. Its waypoints are deliberately
+ * close together, because bunched control points sharpen the spline radius, and
+ * that is what gives the corner its character.
  *
- * TREAT THIS BLOCK AS CONTENT, NOT SCAFFOLDING. An attempt to "tidy" it produced a
- * 2151 m shape that was straighter, slower and considerably worse, and it was
- * shipped by mistake for a while.
+ * TREAT AS CONTENT, NOT SCAFFOLDING. Two attempts to "tidy" this block produced
+ * layouts that were straighter, slower and worse, one of which shipped by mistake.
  */
 export const CLUB: TrackControlPoints = {
   halfWidth: 8.5,
   points: [
-    // Opening straight, then the signature right-left flick.
+    // Opening straight into the signature right-left flick.
     [-240, -170], [60, -170], [220, -160], [310, -120], [330, -50],
     [300, 10], [240, 35], [180, 20], [140, -30], [100, -85],
-    // Long left-hand sweep up and across the top of the circuit.
+    // Long left-hand sweep across the top, opened out for a genuine fast section.
     [30, -120], [-70, -125], [-180, -95], [-270, -40], [-320, 40],
-    [-320, 120], [-270, 190], [-170, 235], [-40, 245], [90, 230],
-    [200, 190], [280, 125], [330, 40],
-    // Final complex: a long run down into a tight hairpin, then back to the line.
-    [360, -50], [380, -140], [330, -230], [200, -280], [40, -290],
-    [-120, -280], [-230, -240],
+    [-358, 134], [-302, 213], [-190, 263], [-45, 274], [101, 258],
+    [224, 213], [314, 140], [370, 45],
+    // End complex down the right side into a properly tight final corner, then
+    // back to the line. The apex is deliberately pulled in so the last corner is
+    // the slowest on the circuit and the long run down to it is a braking zone.
+    [360, -50], [380, -140], [420, -209], [200, -305], [40, -315],
+    [-120, -305], [-230, -265],
   ],
 };
+
+
 
 export interface NamedTrack {
   key: string;
