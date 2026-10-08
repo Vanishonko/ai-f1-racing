@@ -84,11 +84,19 @@ export interface Driver {
   outputs: Float64Array;
 }
 
-export const createDriver = (genes?: Float64Array, random?: () => number): Driver => ({
-  genes: genes ?? randomGenes(random ?? (() => { throw new Error("createDriver needs genes or a seeded random source"); })),
-  hidden: new Float64Array(HIDDEN_SIZE),
-  outputs: new Float64Array(OUTPUT_SIZE),
-});
+export const createDriver = (genes?: Float64Array, random?: () => number): Driver => {
+  if (!genes && !random) {
+    throw new Error(
+      "createDriver needs either genes or a seeded random source; an unseeded " +
+        "initialisation would make a training run impossible to reproduce",
+    );
+  }
+  return {
+    genes: genes ?? randomGenes(random!),
+    hidden: new Float64Array(HIDDEN_SIZE),
+    outputs: new Float64Array(OUTPUT_SIZE),
+  };
+};
 
 /**
  * A fresh random driver.
@@ -167,8 +175,24 @@ export const drive = (driver: Driver, observation: Observation, out: Controls): 
     outputs[output] = sum;
   }
 
-  // Throttle and brake are one-sided; steering is symmetric.
-  out.throttle = saturateUnit(outputs[0]!);
-  out.brake = saturateUnit(outputs[1]!);
+  /*
+   * Throttle and brake are one-sided; steering is symmetric.
+   *
+   * THROTTLE TAKES PRIORITY WHEN BOTH ARE DEMANDED. Two independent outputs can ask for
+   * both pedals at once, and because the brakes are far stronger than the engine the car
+   * then simply does not move: measured, a driver demanding 54 per cent throttle and 21 per
+   * cent brake sat stationary for twenty-five seconds. That is a cliff in the fitness
+   * landscape with no gradient out of it — every perturbation in that region scores zero,
+   * so the search cannot discover that lifting off is what makes the car go.
+   *
+   * Scaling the brake down by the remaining throttle is also what a real driver does: the
+   * pedals are operated by one foot each, and nobody holds both. It leaves the interesting
+   * behaviour intact — braking is still a separate, fully available channel — while removing
+   * a purely artificial trap.
+   */
+  const throttle = saturateUnit(outputs[0]!);
+  const brake = saturateUnit(outputs[1]!);
+  out.throttle = throttle;
+  out.brake = brake * (1 - throttle);
   out.steer = clampUnit(outputs[2]!);
 };

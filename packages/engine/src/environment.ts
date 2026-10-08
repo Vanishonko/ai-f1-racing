@@ -133,8 +133,15 @@ export interface RunResult {
 export const FITNESS_WEIGHTS = {
   /** Fitness per metre of progress. Sets the overall scale. */
   perMetre: 1,
-  /** Fitness per metre, per unit of on-track fraction, on top of the above. */
-  onTrackBonus: 0.5,
+  /**
+   * Fitness per metre, per unit of on-track fraction, on top of the above.
+   *
+   * RAISED from 0.5 after watching a run plateau: at 0.5 a driver that left the circuit
+   * often still outscored one that stayed on it, because leaving the circuit is fast. The
+   * modifier is now large enough that a clean lap beats a scrappy one of the same length,
+   * which is the ordering the whole exercise depends on.
+   */
+  onTrackBonus: 2.5,
   /** Penalty per metre for mean tire utilization above the threshold below. */
   utilizationPenalty: 0.35,
   /** Penalty per metre for time spent with the fronts locked. */
@@ -256,6 +263,12 @@ export const runDriver = (
   const w = FITNESS_WEIGHTS;
   const overLimit = meanUse > w.utilizationFloor ? meanUse - w.utilizationFloor : 0;
 
+  /*
+   * The on-track term is a MULTIPLIER on distance rather than an additive bonus, so that a
+   * driver cannot bank progress by charging off the circuit and rejoining. A car in the
+   * barriers covers no distance along the centreline, and this makes that explicit in the
+   * arithmetic.
+   */
   const fitness =
     distance * (w.perMetre + w.onTrackBonus * onTrackFraction) -
     distance * overLimit * w.utilizationPenalty -

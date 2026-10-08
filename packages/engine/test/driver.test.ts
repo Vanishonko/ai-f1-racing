@@ -11,7 +11,7 @@ import {
   type Controls,
 } from "../src/driver.ts";
 import { createObservation } from "../src/sense.ts";
-import { tanh, saturateUnit } from "../src/activation.ts";
+import { tanh, saturateUnit, logUnit } from "../src/activation.ts";
 import { createRng } from "../src/rng.ts";
 
 /**
@@ -174,8 +174,13 @@ test("driver: the parameter layout the network reads is the layout it declares",
 
   const unit = 5;
   genes[PARAMETER_OFFSETS.hiddenBiases + unit] = 4;
-  // One output weight, so a driven unit produces a visible control.
-  genes[PARAMETER_OFFSETS.outputWeights + HIDDEN_SIZE + unit] = 3;
+  /*
+   * The weight goes to the THROTTLE output, the first channel. An earlier version drove the
+   * brake channel, which stopped working when throttle was given priority over brake — the
+   * brake is now scaled by `1 - throttle`, so a driver pressing the throttle masks its own
+   * braking and the test was measuring that instead of the layout.
+   */
+  genes[PARAMETER_OFFSETS.outputWeights + unit] = 3;
 
   drive(createDriver(genes, seeded(1)), observation, out);
   const driver = createDriver(genes, seeded(1));
@@ -193,5 +198,28 @@ test("driver: the parameter layout the network reads is the layout it declares",
       `hidden unit ${other} was driven without a bias: ${driver.hidden[other]}`,
     );
   }
-  assert.ok(out.brake > 0.9, `the driven unit should push the brake output up: ${out.brake}`);
+  assert.ok(out.throttle > 0.9, `the driven unit should push the throttle output up: ${out.throttle}`);
+});
+
+test("activation: the baked logarithm agrees with the real one", () => {
+  /*
+   * Baked for the same reason as tanh, and used to keep the trainer's Gaussian sampler inside
+   * the determinism contract. Its accuracy is worst near the bottom of its range, where the
+   * function curves hardest, so the check is spread across the range the sampler actually
+   * draws from rather than concentrated where the function is easy.
+   */
+  let worst = 0;
+  for (let i = 1; i <= 2000; i++) {
+    const x = Math.exp(-13 + (13 * i) / 2000);
+    worst = Math.max(worst, Math.abs(logUnit(x) - Math.log(x)));
+  }
+  assert.ok(worst < 1e-3, `the baked logarithm differs from the real one by ${worst.toExponential(2)}`);
+  assert.equal(logUnit(1), 0, "log(1) is pinned to exactly zero, being the last table node");
+  assert.ok(logUnit(0) === logUnit(1e-12), "below the range the value is held, not discontinuous");
+  assert.ok(logUnit(2) === logUnit(1), "above the range the value is held too");
+  assert.ok(logUnit(0.5) < 0 && logUnit(0.5) > -1, "log(0.5) is in the right band");
+  assert.ok(
+    Math.abs(logUnit(0.5) - Math.log(0.5)) < 1e-4,
+    `log(0.5) off by ${Math.abs(logUnit(0.5) - Math.log(0.5)).toExponential(2)}`,
+  );
 });
