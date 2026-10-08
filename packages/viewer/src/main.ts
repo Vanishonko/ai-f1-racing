@@ -28,6 +28,8 @@ import { buildCircuitByKey, CIRCUITS, DEFAULT_TRACK_KEY } from "../../engine/src
 import { projectToTrack, projectToTrackNear, pointAtDistance, type Track } from "../../engine/src/track.ts";
 import { createTiming, updateTiming, formatTime } from "../../engine/src/timing.ts";
 import { gripNoiseAt } from "../../engine/src/rng.ts";
+import { createDriver, drive, PARAMETER_COUNT, type Driver } from "../../engine/src/driver.ts";
+import { createObservation, observe } from "../../engine/src/sense.ts";
 import { tireForces } from "../../engine/src/tire.ts";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
@@ -156,6 +158,8 @@ const selectTrack = (key: string): void => {
   // every measurement taken through it was of the track we had just left.
   if (simHandle) simHandle.track = next;
   resetToStart();
+  // A driver is trained for one circuit, so a checkpoint must be reloaded on a switch.
+  void fetchDriverFor(key);
 };
 
 resetToStart();
@@ -171,7 +175,76 @@ window.addEventListener("keydown", (event: KeyboardEvent) => {
 window.addEventListener("keyup", (event: KeyboardEvent) => held.delete(event.key.toLowerCase()));
 window.addEventListener("blur", () => held.clear());
 
+/**
+ * The trained driver, when one has been loaded.
+ *
+ * A driver is a pure function of its observation, so watching one is exactly the same
+ * simulation as training it — the same step, the same car, the same track. Nothing about the
+ * viewer changes the physics, which is what makes what you watch worth believing.
+ */
+let driver: Driver | null = null;
+const observation = createObservation();
+const aiControls = { throttle: 0, brake: 0, steer: 0 };
+
+/** True when the AI is driving rather than the keyboard. */
+let aiDriving = false;
+
+/**
+ * Loads a checkpoint saved by the trainer.
+ *
+ * The parameter count is checked rather than trusted: a checkpoint from a different build of
+ * the network would otherwise load silently and produce a driver whose weights land in the
+ * wrong layers, which looks like a driver that simply cannot drive.
+ */
+const loadDriver = (data: unknown): string | null => {
+  if (typeof data !== "object" || data === null) return "checkpoint is not an object";
+  const record = data as { genes?: unknown; circuit?: unknown; fitness?: unknown };
+  if (!Array.isArray(record.genes)) return "checkpoint has no genes array";
+  if (record.genes.length !== PARAMETER_COUNT) {
+    return `checkpoint has ${record.genes.length} parameters, this build needs ${PARAMETER_COUNT}`;
+  }
+  driver = createDriver(Float64Array.from(record.genes as number[]), () => 0);
+  return null;
+};
+
+/** Fetches the checkpoint for the current circuit, if one has been trained. */
+const fetchDriverFor = async (circuitKey: string): Promise<void> => {
+  const status = document.getElementById("ai-status");
+  try {
+    const response = await fetch(`/checkpoints/${circuitKey}.json`);
+    if (!response.ok) {
+      driver = null;
+      if (status) status.textContent = "no checkpoint for this circuit";
+      return;
+    }
+    const error = loadDriver(await response.json());
+    if (status) status.textContent = error ?? "trained driver loaded";
+  } catch {
+    driver = null;
+    if (status) status.textContent = "checkpoint could not be read";
+  }
+};
+
+/**
+ * Drives the car from the loaded network.
+ *
+ * The observation is taken from the projection the viewer already maintains, so the AI sees
+ * exactly the same track state the lap timing does.
+ */
+const readAiInputs = (): void => {
+  if (!driver) return;
+  observe(observation, car, track, lastProjectedS);
+  drive(driver, observation, aiControls);
+  car.throttle = aiControls.throttle;
+  car.brake = aiControls.brake;
+  car.steerCommand = aiControls.steer;
+};
+
 const readInputs = (): void => {
+  if (aiDriving) {
+    readAiInputs();
+    return;
+  }
   const wantsThrottle = held.has("w") || held.has("arrowup");
   const wantsBrake = held.has("s") || held.has("arrowdown") || held.has(" ");
   const wantsLeft = held.has("a") || held.has("arrowleft");
@@ -238,7 +311,23 @@ const setupTrackSelector = (): void => {
     }
   });
 };
+const setupDriverToggle = (): void => {
+  const toggle = document.getElementById("ai-drive") as HTMLInputElement | null;
+  if (!toggle) return;
+  toggle.addEventListener("change", () => {
+    aiDriving = toggle.checked && driver !== null;
+    if (toggle.checked && driver === null) {
+      toggle.checked = false;
+      const status = document.getElementById("ai-status");
+      if (status) status.textContent = "no checkpoint loaded";
+    }
+    resetToStart();
+  });
+};
+
 setupTrackSelector();
+setupDriverToggle();
+void fetchDriverFor(DEFAULT_TRACK_KEY);
 
 simHandle = {
   car, track, params, stepContext, resetToStart, held, selectTrack,

@@ -100,5 +100,29 @@ const transpile = async (src: string, out: string): Promise<string[]> => {
 const engineModules = await transpile(ENGINE_SRC, ENGINE_OUT);
 const viewerModules = await transpile(VIEWER_SRC, VIEWER_OUT);
 
+/**
+ * Publishes trained drivers so the viewer can fetch them.
+ *
+ * Checkpoints live outside `public/` because they are produced by training rather than by the
+ * build, and they can be large. Copying them in is what turns a finished run into something
+ * watchable: the viewer fetches `/checkpoints/<circuit>.json` and drives from it.
+ *
+ * A missing directory is normal — nothing has been trained yet — and is not an error.
+ */
+const CHECKPOINTS = join(ROOT, "checkpoints");
+const CHECKPOINT_OUT = join(ROOT, "public/checkpoints");
+let published = 0;
+try {
+  await mkdir(CHECKPOINT_OUT, { recursive: true });
+  for (const entry of await readdir(CHECKPOINTS, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    await cp(join(CHECKPOINTS, entry.name), join(CHECKPOINT_OUT, entry.name));
+    published++;
+  }
+} catch {
+  // No checkpoints yet. The viewer reports that per circuit rather than failing.
+}
+
 console.log(`engine: ${engineModules.length} modules -> public/engine/`);
 console.log(`viewer: ${viewerModules.length} modules -> public/viewer/`);
+console.log(`drivers: ${published} checkpoint(s) -> public/checkpoints/`);

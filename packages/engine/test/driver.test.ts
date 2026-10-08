@@ -139,17 +139,27 @@ test("activation: the baked tanh agrees with the real one where it matters", () 
 });
 
 test("activation: saturateUnit is monotonic, smooth and bounded", () => {
-  assert.equal(saturateUnit(0), 0.5, "zero demand sits at the midpoint");
+  /*
+   * ZERO MUST MEAN FULLY RELEASED. An earlier version centred the curve at zero, so an
+   * untrained driver — whose outputs are all zero — demanded half throttle and half brake at
+   * once. The car then sat still, and because it never moved the search had no gradient:
+   * measured, eighty generations produced no progress whatsoever.
+   */
+  assert.equal(saturateUnit(0), 0, "zero demand must mean no pedal, not half a pedal");
+  assert.ok(saturateUnit(-1) < 0.2, "a negative output must mean essentially no pedal");
+
+  // Non-decreasing everywhere, and strictly increasing once the pedal is being pressed.
   let previous = -Infinity;
   for (let i = -500; i <= 500; i++) {
     const value = saturateUnit(i / 50);
-    assert.ok(value > previous, `saturateUnit must increase: ${value} after ${previous}`);
+    assert.ok(value >= previous - 1e-12, `saturateUnit must not decrease: ${value} after ${previous}`);
     assert.ok(value >= 0 && value <= 1, `saturateUnit left [0, 1]: ${value}`);
     previous = value;
   }
-  // Never reaches the bounds, so a search always has a gradient to follow.
+  // The upper bound is an asymptote, so a search always has a gradient to follow. The lower
+  // bound IS a clamp at zero by design: a released pedal is released.
   assert.ok(saturateUnit(1e6) < 1, "the upper bound is an asymptote, not a clamp");
-  assert.ok(saturateUnit(-1e6) > 0, "the lower bound is an asymptote, not a clamp");
+  assert.equal(saturateUnit(-1e6), 0, "the lower bound is exactly a released pedal");
 });
 
 test("driver: the parameter layout the network reads is the layout it declares", () => {

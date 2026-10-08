@@ -30,3 +30,7 @@ captures/
 ._*
 .Spotlight-V100
 .Trashes
+
+# Trained drivers: produced by `train`, published by the build, not source.
+checkpoints/
+public/checkpoints/

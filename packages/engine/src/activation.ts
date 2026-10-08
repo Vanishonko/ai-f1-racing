@@ -120,24 +120,49 @@ export const logUnit = (x: number): number => {
 };
 
 /**
- * Maps any real number onto [0, 1], smoothly and without a transcendental.
+ * Maps a pedal output onto [0, 1], with ZERO MEANING FULLY RELEASED.
  *
- * Used for the one-sided controls — throttle and brake — where a linear clamp would
- * flatten the gradient to zero over most of the range and leave the search with nothing
- * to follow. This saturates gently instead, so a larger output always means a larger
- * control demand.
+ * The centring matters more than the shape. A plain saturating curve has its midpoint at zero,
+ * so a driver whose output is zero demands half throttle — and with the brake equally centred,
+ * half brake as well. An untrained population therefore sits still with both pedals down, and
+ * because the car does not move there is no gradient to climb: measured, the search made no
+ * progress at all across eighty generations.
+ *
+ * Centring the neutral point at zero means an untrained driver coasts, and the smallest
+ * perturbation towards a positive output moves the car. That is the difference between a
+ * fitness landscape with a slope and one with a plateau.
+ *
+ * The curve itself is a smooth saturation rather than a clamp, so a larger output always means
+ * a larger demand and the gradient never flattens to nothing over the useful range.
  */
 export const saturateUnit = (value: number): number => {
-  const m = value < 0 ? -value : value;
-  if (m < 1e-9) return 0.5;
-  return (1 + value / Math.sqrt(1 + value * value)) * 0.5;
+  /*
+   * NEGATIVE OUTPUT MEANS NO PEDAL; POSITIVE MEANS PRESS IT.
+   *
+   * The mapping is a smooth saturation of the positive half, with everything at or below zero
+   * collapsed to released. Two earlier versions were wrong in opposite directions and both
+   * stalled the search completely:
+   *
+   *   - Centring a symmetric curve at zero made an untrained driver demand half throttle AND
+   *     half brake, so the car sat still. With no movement there is no gradient, and eighty
+   *     generations produced literally no progress.
+   *   - Folding the whole real line into [0, 1] by shifting the curve left put a steep slope at
+   *     zero, so the smallest perturbation slammed a pedal to an extreme.
+   *
+   * Reserving the negative half for release fixes both: an untrained driver coasts, and the
+   * response near zero is smooth. The trade is that the released half carries no information,
+   * which costs nothing — a pedal that is not pressed is not pressed.
+   */
+  if (value <= 0) return 0;
+  const curve = value / Math.sqrt(1 + value * value);
+  return curve;
 };
-
 /**
  * Clamps to [-1, 1].
  *
- * Used for steering, which is a bounded command rather than a demand: the driver asks
- * for a position, not for more of something, so saturating it would distort the meaning
- * of the value instead of merely limiting it.
+ * Used for steering, which is a bounded command rather than a demand: the driver asks for a
+ * position, not for more of something, so saturating it would distort the meaning of the value
+ * instead of merely limiting it. Unlike the pedals, zero here is already neutral — straight
+ * ahead — so no centring adjustment is needed.
  */
 export const clampUnit = (value: number): number => (value < -1 ? -1 : value > 1 ? 1 : value);

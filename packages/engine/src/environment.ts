@@ -133,15 +133,6 @@ export interface RunResult {
 export const FITNESS_WEIGHTS = {
   /** Fitness per metre of progress. Sets the overall scale. */
   perMetre: 1,
-  /**
-   * Fitness per metre, per unit of on-track fraction, on top of the above.
-   *
-   * RAISED from 0.5 after watching a run plateau: at 0.5 a driver that left the circuit
-   * often still outscored one that stayed on it, because leaving the circuit is fast. The
-   * modifier is now large enough that a clean lap beats a scrappy one of the same length,
-   * which is the ordering the whole exercise depends on.
-   */
-  onTrackBonus: 2.5,
   /** Penalty per metre for mean tire utilization above the threshold below. */
   utilizationPenalty: 0.35,
   /** Penalty per metre for time spent with the fronts locked. */
@@ -150,6 +141,21 @@ export const FITNESS_WEIGHTS = {
   wheelspinPenalty: 0.25,
   /** Utilization below this is free; above it costs. */
   utilizationFloor: 0.85,
+  /**
+   * On-track fraction below which a driver scores almost nothing.
+   *
+   * A MULTIPLIER, not a penalty, and it exists because the search found the shortcut.
+   * Measured: over 130 generations the best fitness rose to 1249 while the fraction of the run
+   * spent on the circuit fell from 80 per cent to 15. The driver had learned that leaving the
+   * track is fast — the centreline distance keeps accruing as it cuts across the infield — so
+   * distance alone was being maximised by not driving the circuit at all.
+   *
+   * That is not a tuning problem, it is the objective being wrong. A driver that cuts the
+   * course has not learned to race, so staying on the circuit gates the score rather than
+   * merely contributing to it. Below this floor the fitness collapses towards zero, which
+   * makes the floor itself the thing to climb.
+   */
+  onTrackFloor: 0.6,
 } as const;
 
 /**
@@ -264,13 +270,21 @@ export const runDriver = (
   const overLimit = meanUse > w.utilizationFloor ? meanUse - w.utilizationFloor : 0;
 
   /*
-   * The on-track term is a MULTIPLIER on distance rather than an additive bonus, so that a
-   * driver cannot bank progress by charging off the circuit and rejoining. A car in the
-   * barriers covers no distance along the centreline, and this makes that explicit in the
-   * arithmetic.
+   * STAYING ON THE CIRCUIT GATES THE SCORE.
+   *
+   * Two earlier formulations were tried. An additive bonus let a driver that cut the course
+   * outscore one that drove it, because the centreline distance keeps accruing across the
+   * infield. Multiplying distance by an on-track factor was better but still not enough: over
+   * 130 generations fitness rose to 1249 while on-track time fell to 15 per cent, so the search
+   * had found that leaving the circuit is worth more than the factor costs.
+   *
+   * Below the floor the score therefore collapses towards zero, and above it the factor rises
+   * gradually. The floor itself becomes the thing to climb, which is the ordering a racing
+   * objective needs: drive the circuit first, then drive it quickly.
    */
+  const gate = onTrackFraction < w.onTrackFloor ? 0.05 : 0.5 + onTrackFraction;
   const fitness =
-    distance * (w.perMetre + w.onTrackBonus * onTrackFraction) -
+    distance * w.perMetre * gate -
     distance * overLimit * w.utilizationPenalty -
     distance * lockedFraction * w.lockPenalty -
     distance * wheelspinFraction * w.wheelspinPenalty;
