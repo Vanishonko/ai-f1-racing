@@ -23,6 +23,37 @@ export interface TrackControlPoints {
   halfWidth: number;
 }
 
+
+/**
+ * Rebuilds `s` and `length` as CUMULATIVE CHORD LENGTH along the sampled polyline.
+ *
+ * WHY THIS IS NEEDED. Two different definitions of "distance along the track" had
+ * grown up: the hand-placed circuits measured true arc length when resampling by
+ * distance, while the designed circuits summed the straight-line steps between
+ * samples. On a curved circuit those differ — the chord across a corner is shorter
+ * than the arc — so `s[i+1] - s[i]` did not equal the distance between the points
+ * that `s` describes, by 0.4 m on the Chicane.
+ *
+ * Chord length is the one that matters, because the car moves along the sampled
+ * polyline, not along the ideal curve. Making every track agree on it means the
+ * distance-to-sample lookup, the projection and the lap counter all describe the
+ * same path.
+ */
+export const rebuildArcLength = (track: Track): Track => {
+  const count = track.xs.length;
+  if (count === 0) return track;
+
+  const s = new Float64Array(count);
+  let running = 0;
+  for (let i = 0; i < count; i++) {
+    s[i] = running;
+    const next = (i + 1) % count;
+    running += len(track.xs[next]! - track.xs[i]!, track.ys[next]! - track.ys[i]!);
+  }
+
+  return { ...track, s, length: running, spacing: running / count };
+};
+
 export interface Track {
   /** Centreline samples, uniformly spaced by arc length. */
   xs: Float64Array;
@@ -212,7 +243,9 @@ export const buildTrack = (
     smoothed[i] = sum / (smoothWindow * 2 + 1);
   }
 
-  return {
+  // Arc length is rebuilt from the emitted samples so that every circuit shares one
+  // definition of distance along the track. See `rebuildArcLength`.
+  return rebuildArcLength({
     xs,
     ys,
     s,
@@ -223,7 +256,7 @@ export const buildTrack = (
     spacing,
     halfWidth: spec.halfWidth,
     name,
-  };
+  });
 };
 
 /**
@@ -233,10 +266,33 @@ export const buildTrack = (
  * distance still lands in range.
  */
 export const sampleIndexAt = (track: Track, distance: number): number => {
-  const raw = Math.floor(distance / track.spacing);
   const count = track.s.length;
-  const wrapped = raw % count;
-  return wrapped < 0 ? wrapped + count : wrapped;
+  if (count === 0) return 0;
+
+  const total = track.length;
+  let target = distance % total;
+  if (target < 0) target += total;
+
+  /*
+   * BINARY SEARCH over the track's own arc-length array, NOT `distance / spacing`.
+   *
+   * The samples are NOT evenly spaced: the walker emits straight sections at a
+   * ~0.5 m stride but arcs at the chord length for their angle and radius, which on
+   * Spa ranges from 0.5 m to 6.6 m. Dividing by the AVERAGE spacing (0.5559 there)
+   * therefore lands progressively further behind — a 10% lag that reached 162 m by
+   * the far side of the lap and made a car's reported position nonsense.
+   *
+   * `track.s` holds exact cumulative arc length, so searching it is exact by
+   * construction and costs a dozen comparisons.
+   */
+  let low = 0;
+  let high = count - 1;
+  while (low < high) {
+    const mid = (low + high + 1) >> 1;
+    if (track.s[mid]! <= target) low = mid;
+    else high = mid - 1;
+  }
+  return low;
 };
 
 export interface TrackPoint {
@@ -255,27 +311,39 @@ export interface TrackPoint {
  */
 export const pointAtDistance = (track: Track, distance: number): TrackPoint => {
   const count = track.s.length;
-  const spacing = track.spacing;
-  const raw = distance / spacing;
-  const index = Math.floor(raw);
-  const wrapped = ((index % count) + count) % count;
-  const next = (wrapped + 1) % count;
-  const t = raw - Math.floor(raw);
+  const total = track.length;
+
+  let target = distance % total;
+  if (target < 0) target += total;
+
+  // Binary search on exact arc length, NOT `distance / spacing`.
+  //
+  // The samples are not evenly spaced — the walker emits arcs at a different stride
+  // from straights — so dividing by an average spacing lands on the wrong sample and
+  // then interpolates within it. On Spa that put a point 5 m along a straight at the
+  // position of a sample 10 places earlier, and the error grew with distance.
+  const index = sampleIndexAt(track, target);
+  const next = (index + 1) % count;
+  const span = (next === 0 ? total : track.s[next]!) - track.s[index]!;
+  const t = span > 1e-9 ? (target - track.s[index]!) / span : 0;
 
   return {
-    x: track.xs[wrapped]! + (track.xs[next]! - track.xs[wrapped]!) * t,
-    y: track.ys[wrapped]! + (track.ys[next]! - track.ys[wrapped]!) * t,
-    tx: track.tx[wrapped]! + (track.tx[next]! - track.tx[wrapped]!) * t,
-    ty: track.ty[wrapped]! + (track.ty[next]! - track.ty[wrapped]!) * t,
+    x: track.xs[index]! + (track.xs[next]! - track.xs[index]!) * t,
+    y: track.ys[index]! + (track.ys[next]! - track.ys[index]!) * t,
+    tx: track.tx[index]! + (track.tx[next]! - track.tx[index]!) * t,
+    ty: track.ty[index]! + (track.ty[next]! - track.ty[index]!) * t,
   };
 };
 
 /**
  * Nearest centreline sample to a world point, by exhaustive search.
  *
- * Placeholder: correct but O(n). The real implementation walks a spatial grid
- * built at track load, which is O(1) and is what the observation raycasts will
- * need. Kept honest here rather than pretended at.
+ * GLOBAL nearest, which is right for placing a car freshly on a track and WRONG for
+ * tracking one already driving it — see `projectToTrackNear`. Use this only when
+ * there is no previous position to go on.
+ *
+ * O(n) and correct; a spatial grid would make it O(1) and is what the observation
+ * raycasts will need. Kept honest here rather than pretended at.
  */
 export const nearestSample = (track: Track, x: number, y: number): number => {
   let best = 0;
@@ -291,6 +359,108 @@ export const nearestSample = (track: Track, x: number, y: number): number => {
   }
   return best;
 };
+
+/**
+ * Projects a point onto the track, searching only near a known previous position.
+ *
+ * THE PROBLEM THIS SOLVES. A track need not self-cross to have an ambiguous
+ * projection: a circuit with long straights that fold back close to themselves —
+ * which is most real ones, and certainly Spa — has places where the globally
+ * nearest centreline sample lies on a DIFFERENT part of the lap. Projecting Spa's
+ * midpoint found the nearest sample 157 m away along the track, which would put a
+ * car in the wrong place, break its lap distance, and corrupt every lookahead
+ * sample derived from it.
+ *
+ * Searching a bounded window around `previousS` resolves this exactly as it is
+ * resolved on a real car: the position is known to be continuous, so where it was
+ * last tick is a far better constraint than global proximity. Anything further away
+ * than the window is not considered at all.
+ *
+ * @param previousS distance along the track from the last tick
+ * @param windowM how far the car could plausibly have moved, plus margin
+ */
+export const projectToTrackNear = (
+  track: Track,
+  x: number,
+  y: number,
+  previousS: number,
+  windowM = 40,
+): Projection => {
+  const count = t_sCount(track);
+
+  /*
+   * SEARCH OUTWARD FROM THE PREVIOUS POSITION, on both sides, and take the nearest
+   * sample found — but only samples within the reach.
+   *
+   * Walking forward only is not enough. The true nearest sample is sometimes BEHIND
+   * the sample the previous position sat on, and a forward-only walk cannot reach it:
+   * it comes to rest a little ahead every tick, and the error compounds until the
+   * reported position jumps half a lap. Measured at 3,488 m on Spa, which is almost
+   * exactly half its length.
+   *
+   * Searching both ways from the exact previous sample, and taking the minimum over
+   * the whole reach, keeps the result anchored: it can only ever be `reach` samples
+   * from where the car was, so it cannot hop to the far side of a fold.
+   */
+  const start = sampleIndexAt(track, previousS);
+  const reach = Math.max(8, Math.ceil(windowM / Math.max(track.spacing, 1e-3)));
+
+  let best = start;
+  let bestDistance = Infinity;
+  for (let offset = -reach; offset <= reach; offset++) {
+    const i = ((start + offset) % count + count) % count;
+    const dx = x - track.xs[i]!;
+    const dy = y - track.ys[i]!;
+    const distance = dx * dx + dy * dy;
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = i;
+    }
+  }
+
+  /*
+   * Refine within the local CHORD, not along the tangent.
+   *
+   * Extrapolating along the sample's tangent is only valid while the track is
+   * straight over the offset concerned. In Spa's 150-degree hairpin the tangent
+   * swings round far faster than that, so a point on the corner projected to a
+   * lateral offset of -44 m on a track 9.5 m wide. Projecting onto the chord between
+   * two adjacent samples and clamping to it cannot do that: the samples are half a
+   * metre apart, so the answer is confined to half a metre of track by construction.
+   */
+  const next = (best + 1) % count;
+  const ax = track.xs[best]!;
+  const ay = track.ys[best]!;
+  const bx = track.xs[next]!;
+  const by = track.ys[next]!;
+  const ex = bx - ax;
+  const ey = by - ay;
+  const segment = ex * ex + ey * ey;
+
+  let fraction = 0;
+  if (segment > 1e-12) {
+    fraction = ((x - ax) * ex + (y - ay) * ey) / segment;
+    if (fraction < 0) fraction = 0;
+    else if (fraction > 1) fraction = 1;
+  }
+
+  const px = ax + ex * fraction;
+  const py = ay + ey * fraction;
+  const tx = track.tx[best]!;
+  const ty = track.ty[best]!;
+  const lateral = (x - px) * -ty + (y - py) * tx;
+  const span = (next === 0 ? track.length : track.s[next]!) - track.s[best]!;
+
+  return {
+    s: track.s[best]! + span * fraction,
+    d: lateral,
+    tangentX: tx,
+    tangentY: ty,
+    onTrack: Math.abs(lateral) <= track.halfWidth,
+  };
+};
+
+const t_sCount = (track: Track): number => track.xs.length;
 
 export interface Projection {
   /** Distance along the track [m]. */

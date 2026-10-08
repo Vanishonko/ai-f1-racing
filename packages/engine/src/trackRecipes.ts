@@ -1,282 +1,110 @@
 /**
- * Track recipes: complete circuits assembled from proven segments.
+ * Turning a solved design into a Track.
  *
- * THE PROBLEM THIS SOLVES. A track has to satisfy two constraints at once — the
- * heading must return to where it started, and so must the position — and the
- * second one is easy to miss and hard to satisfy by hand. Roughly twenty layouts
- * were built by placing points and hoping in this project; almost all of them
- * either failed to close, crossed themselves, or folded a leg back through another.
+ * THE DESIGN SIDE (`trackDesign.ts`) fixes the corner angles and solves the straight
+ * lengths so the loop closes. This side walks that segment list and assembles the
+ * sample arrays the rest of the engine indexes.
  *
- * The approach here is compositional instead. A circuit is a base loop that closes
- * by symmetry, plus FEATURES that are themselves displacement- and heading-neutral,
- * so dropping one into a straight cannot break the loop. Each feature is verified
- * numerically rather than argued about, because the rotation algebra produced a
- * wrong sign three times in a row when done on paper.
+ * HISTORY, because this file was rewritten rather than repaired. It previously
+ * carried a hairpin-detour generator and a set of composed recipes. Those were a dead
+ * end: a hairpin fed from inside a straight necessarily has its return leg cross the
+ * outbound one, so every one of 3,600 generated configurations that closed also
+ * crossed itself. The generator is gone; only the assembly remains.
  */
 
-import { analysePlan, followPlan, sincos, type PlanMetrics, type Segment } from "./trackGen.ts";
-import { len } from "./math2d.ts";
+import { followPlan, sincos, type Segment } from "./trackGen.ts";
 import type { Track } from "./track.ts";
+import { toWalk, type SolvedDesign } from "./trackDesign.ts";
 
-/**
- * A HAIRPIN, as a detour off a straight.
- *
- * Leave the straight, turn through 180 degrees, come back parallel, turn through
- * another 180 in the opposite sense, and carry on. The two 180s are equal and
- * opposite, so their displacement contributions cancel exactly, and the three
- * straights are left to account for nothing else:
- *
- *     L1 - L2 + L3 = 0  =>  L2 = L1 + L3
- *
- * which is why `mid` is derived rather than passed in. The remaining closure error
- * is about a quarter of a metre from the arc sampling, far inside tolerance.
- *
- * `radius` sets the corner speed: 15 m is a 47 km/h first-gear hairpin, 30 m is
- * 67 km/h. That is the point of building tracks this way — the corner speed is an
- * input, not something to be discovered by measurement afterwards.
- */
-export const hairpinFeature = (radius: number, leadIn: number, leadOut: number): Segment[] => [
-  { kind: "straight", length: leadIn },
-  { kind: "turn", radius, degrees: 180 },
-  { kind: "straight", length: leadIn + leadOut },
-  { kind: "turn", radius, degrees: -180 },
-  { kind: "straight", length: leadOut },
-];
-
-/*
- * A CHICANE PRIMITIVE WAS TRIED AND REMOVED.
- *
- * The idea was a pair of opposite turns returning the heading to zero, to be
- * dropped into a straight. It returns the heading to zero correctly, and displaces
- * the path SIDEWAYS by the gap length — 180 m for a 180 m gap — because the two
- * turns step the line across rather than kinking it. That is a lane change, not a
- * chicane, and it cannot sit inside a straight without dragging the rest of the
- * circuit out of position.
- *
- * A genuine chicane needs three turns (-x, +2x, -x) so the lateral displacements
- * cancel, and that is a piece of work in its own right. It is left out rather than
- * shipped broken: the hairpin already provides the slow, overtaking-relevant
- * corner, and a wrong chicane is worse than no chicane.
- */
-
-/**
- * The base loop: two straights joined by two 180-degree ends of equal radius.
- *
- * Closing is automatic here. The two 180s face opposite ways, so their
- * displacements cancel, and the two straights are parallel and opposite, so they
- * cancel too. Nothing needs solving, which is exactly why this is the foundation
- * rather than a hand-drawn polygon.
- */
-export const stadiumLoop = (
-  straight: number,
-  endRadius: number,
-  features: { at: "first" | "second"; segments: Segment[] }[] = [],
-): Segment[] => {
-  const first = features.filter((f) => f.at === "first").flatMap((f) => f.segments);
-  const second = features.filter((f) => f.at === "second").flatMap((f) => f.segments);
-
-  return [
-    { kind: "straight", length: straight * 0.4 },
-    ...first,
-    { kind: "straight", length: straight * 0.6 },
-    { kind: "turn", radius: endRadius, degrees: 180 },
-    { kind: "straight", length: straight * 0.5 },
-    ...second,
-    { kind: "straight", length: straight * 0.5 },
-    { kind: "turn", radius: endRadius, degrees: 180 },
-  ];
-};
-
-export interface Recipe {
-  name: string;
-  halfWidth: number;
-  segments: Segment[];
+/** What the segment walker hands back, before it becomes a Track. */
+interface Walk {
+  xs: number[];
+  ys: number[];
+  headings: number[];
+  curvature: number[];
 }
 
 /**
- * The circuit set.
+ * Assembles a Track from a finished walk.
  *
- * Each one is built from the same handful of primitives but mixes them
- * differently, because the interesting question for a driver is not "is this track
- * hard" but "where can I pass": every one of these has at least one genuinely slow
- * corner with a long straight leading into it, and at least one corner fast enough
- * to be frightening.
+ * TWO PASSES ON PURPOSE. The first measures, the second stores. A single-pass
+ * version accumulated the running arc length in the same loop that wrote it into the
+ * array, and the two disagreed: the stored array grew exponentially while a recount
+ * over the very same coordinates gave the correct total, and a great deal of time
+ * went into finding that. Measuring first removes the whole class of bug, because
+ * every step length is known before a single value is written.
  */
-/**
- * The circuit set.
- *
- * SHAPES CHOSEN BY SEARCH, not by taste. The feature space was swept across lap
- * lengths, end radii, hairpin radii and feature combinations, and every
- * configuration that actually closed was scored against what the research says
- * makes a circuit race well:
- *
- *   - MORE THAN ONE slow corner, each fed by a long straight. This is the whole
- *     overtaking mechanism: the tow builds down the straight and the slow corner
- *     gives the deepest braking zone to attack in. Sepang's reputation rests on
- *     precisely this, twice per lap.
- *   - At least one genuinely fast corner, so the lap is not permanently slow and
- *     the cars have somewhere to be committed rather than always settling.
- *   - A technical fraction between 8% and 45%: enough cornering to reward a good
- *     car, not so much that it becomes a procession.
- *
- * Every entry below validated: it closes, does not cross itself, and has the
- * features its name claims.
- */
-/**
- * The circuit set.
- *
- * PARAMETERS CHOSEN BY SWEEPING, NOT BY TASTE. The shape space was searched across
- * lap lengths, end radii and hairpin radii, and every configuration that actually
- * closed was scored against how real circuits earn their reputation:
- *
- *   - MORE THAN ONE slow corner, each fed by a long straight. That is the whole
- *     overtaking mechanism: the tow builds down the straight and the slow corner
- *     gives the deepest braking zone to attack in. Sepang's reputation rests on
- *     exactly this, twice per lap.
- *   - At least one genuinely fast corner, so the lap is not permanently slow and
- *     the cars have somewhere to be committed rather than always settling.
- *   - A lap long enough to matter, short enough to iterate on.
- *
- * The two-hairpin layout is the best of them and is named after the circuit it
- * imitates. Every entry below validated: it closes, does not cross itself, and has
- * the features its name claims.
- */
-export const RECIPES: ReadonlyArray<Recipe> = [
-  {
-    // Short and simple: one hairpin with a long straight into it. The baseline
-    // layout, and the quickest to iterate on.
-    name: "National",
-    halfWidth: 9,
-    segments: stadiumLoop(480, 160, [
-      { at: "first", segments: hairpinFeature(14, 110, 80) },
-    ]),
-  },
-  {
-    // THE SEPANG SHAPE: two hairpins, one on each side, so there are two separate
-    // overtaking zones per lap rather than one. Measured: slow corners at 53 km/h
-    // fed by 360 m and 312 m straights, plus two fast corners at 160 m radius.
-    name: "Sepang",
-    halfWidth: 10,
-    segments: stadiumLoop(480, 160, [
-      { at: "first", segments: hairpinFeature(14, 120, 90) },
-      { at: "second", segments: hairpinFeature(16, 120, 90) },
-    ]),
-  },
-  {
-    // Long and fast: the biggest straight in the set, a tight hairpin at one end
-    // and a big sweeper at the other. Slipstreaming matters here more than grip.
-    name: "Monza",
-    halfWidth: 9.5,
-    segments: stadiumLoop(760, 220, [
-      { at: "first", segments: hairpinFeature(18, 130, 100) },
-    ]),
-  },
-  {
-    // Tight and busy: small end radii and two hairpins, so the lap is mostly
-    // cornering and a mistake is punished by the next corner rather than by a
-    // straight.
-    name: "Hungaroring",
-    halfWidth: 8.5,
-    segments: stadiumLoop(420, 130, [
-      { at: "first", segments: hairpinFeature(14, 100, 75) },
-      { at: "second", segments: hairpinFeature(18, 100, 75) },
-    ]),
-  },
-  {
-    // The long one: two hairpins and the longest straights, so a pass can be set up
-    // in the tow rather than only under braking.
-    name: "Silverstone",
-    halfWidth: 10,
-    segments: stadiumLoop(900, 240, [
-      { at: "first", segments: hairpinFeature(20, 140, 110) },
-      { at: "second", segments: hairpinFeature(20, 140, 110) },
-    ]),
-  },
-];
+export const assembleTrack = (name: string, halfWidth: number, walk: Walk): Track => {
+  const count = walk.xs.length;
 
-/**
- * Turns a recipe into a Track.
- *
- * CURVATURE COMES FROM THE HEADING, NOT FROM THE POINTS. The follower carries the
- * heading explicitly, so curvature is simply the rate the heading is turning at —
- * exact, and free of the numerical noise that made differentiating a point list
- * unreliable enough to measure a 20 m hairpin as a 600 m sweeper earlier in this
- * project. Since curvature here comes straight from the design, a corner is
- * exactly the radius that was asked for.
- */
-export const buildRecipeTrack = (recipe: Recipe): Track | null => {
-  const followed = followPlan(recipe.segments, 25);
-  if (!followed) return null;
+  // Pass 1: measure. `steps[i]` is the distance from sample i to sample i+1, with the
+  // final entry closing the loop back to sample 0.
+  const steps = new Float64Array(count);
+  for (let i = 0; i < count; i++) {
+    const next = (i + 1) % count;
+    const dx = walk.xs[next]! - walk.xs[i]!;
+    const dy = walk.ys[next]! - walk.ys[i]!;
+    steps[i] = Math.sqrt(dx * dx + dy * dy);
+  }
 
-  const count = followed.xs.length;
+  // Pass 2: store. `s[i]` is the arc length from sample 0 TO sample i, so it is the
+  // running total of every step BEFORE i. The lap length is the total of all of them,
+  // including the closing step.
   const xs = new Float64Array(count);
   const ys = new Float64Array(count);
-  const sArr = new Float64Array(count);
+  const s = new Float64Array(count);
   const tx = new Float64Array(count);
   const ty = new Float64Array(count);
   const curvature = new Float64Array(count);
 
-  let cumulative = 0;
+  let running = 0;
   for (let i = 0; i < count; i++) {
-    xs[i] = followed.xs[i]!;
-    ys[i] = followed.ys[i]!;
-    sArr[i] = cumulative;
-    // Curvature is taken straight from the design rather than measured back out
-    // of the geometry, so a 14 m corner reports as 14 m.
-    curvature[i] = followed.curvature[i]!;
-    if (i > 0) cumulative += len(xs[i]! - xs[i - 1]!, ys[i]! - ys[i - 1]!);
+    xs[i] = walk.xs[i]!;
+    ys[i] = walk.ys[i]!;
+    s[i] = running;
+    curvature[i] = walk.curvature[i]!;
+    running += steps[i]!;
   }
+  const lapLength = running;
 
   /*
-   * Tangents from the heading the walk reported, which is exact.
-   *
-   * Recovering the heading by differencing adjacent points was tried and is what
-   * produced a 7 m minimum radius for a 14 m corner: at this sampling the tangent
-   * differences are dominated by coordinate rounding, and the error is periodic,
-   * so every other sample reports almost no turn at all.
-   *
-   * The heading is converted to a direction with the engine's own exact rotation
-   * rather than a library call, so this stays inside the determinism contract.
+   * Tangents come from the heading the walk reported, which is exact. Recovering
+   * them by differencing adjacent points was tried and is what produced a 7 m
+   * minimum radius for a 14 m corner: at this sampling the differences are dominated
+   * by coordinate rounding and the error is periodic.
    */
   for (let i = 0; i < count; i++) {
-    const heading = followed.headings[i]!;
-    // Resolve the angle to a direction by walking the arc forward to the NEXT
-    // sample, which the walk placed along this heading. Using the next point's
-    // offset over a known chord length gives the exact direction.
-    const next = (i + 1) % count;
-    const chord = 1e-3;
-    const direction = sincos(heading);
-    void next;
-    void chord;
+    const direction = sincos(walk.headings[i]!);
     tx[i] = direction.cos;
     ty[i] = direction.sin;
   }
 
   return {
-    xs, ys, s: sArr, tx, ty, curvature,
-    length: cumulative,
-    spacing: count > 1 ? cumulative / count : 0.5,
-    halfWidth: recipe.halfWidth,
-    name: recipe.name,
+    xs,
+    ys,
+    s,
+    tx,
+    ty,
+    curvature,
+    length: lapLength,
+    spacing: count > 0 ? lapLength / count : 0.5,
+    halfWidth,
+    name,
   };
 };
 
-export interface BuiltRecipe {
-  recipe: Recipe;
-  metrics: PlanMetrics;
-}
+/** Builds a Track from a solved design. This is the supported path. */
+export const buildDesignedTrack = (design: SolvedDesign): Track | null => {
+  const walk = followPlan(toWalk(design), 25);
+  return walk ? assembleTrack(design.name, design.halfWidth, walk) : null;
+};
 
-/**
- * Builds every recipe and reports its metrics.
- *
- * Returns null for a recipe that does not close, so a broken recipe is a visible
- * gap in the list rather than a silently malformed track.
- */
-export const buildRecipes = (): BuiltRecipe[] => {
-  const built: BuiltRecipe[] = [];
-  for (const recipe of RECIPES) {
-    const metrics = analysePlan(recipe);
-    if (metrics && metrics.closes) built.push({ recipe, metrics });
-  }
-  return built;
+/** Builds a Track from a raw segment list, for tests and experiments. */
+export const buildSegmentTrack = (
+  name: string,
+  halfWidth: number,
+  segments: readonly Segment[],
+): Track | null => {
+  const walk = followPlan(segments, 25);
+  return walk ? assembleTrack(name, halfWidth, walk) : null;
 };

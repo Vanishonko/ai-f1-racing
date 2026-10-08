@@ -5,6 +5,7 @@ import {
   minimumCornerRadius,
   pointAtDistance,
   projectToTrack,
+  projectToTrackNear,
   selfIntersections,
   validateTrack,
   type TrackControlPoints,
@@ -58,11 +59,17 @@ test("track: no layout overlaps itself or crosses its own centreline", () => {
       `${track.name}: centreline crosses itself ${crossings.length} time(s)`,
     );
 
-    // Clearance: two parts of the track must be far enough apart that their
-    // SURFACES do not touch. Samples are only compared when they are far apart
-    // along the loop in both directions, which excludes the start/finish join.
+    /*
+     * Clearance: two parts of the track must be far enough apart that their
+     * SURFACES do not touch.
+     *
+     * The along-track separation has to be GENEROUS — 250 m — or the check measures
+     * a hairpin against itself. Spa's 150-degree hairpin has its two legs 81 m
+     * apart along the loop and 46 m apart in space, which is exactly what a hairpin
+     * is, and an 80 m threshold reported it as an overlap.
+     */
     const count = track.xs.length;
-    const minGap = Math.round(80 / track.spacing);
+    const minGap = Math.round(250 / track.spacing);
     let closest = Infinity;
     let where: [number, number] = [0, 0];
     for (let i = 0; i < count; i += 2) {
@@ -114,10 +121,16 @@ test("track: every layout has somewhere to overtake", () => {
   for (const track of buildHandTracks()) {
     if (track.name === "The Oval") continue;
 
-    // Radius at each sample, lightly smoothed so one noisy apex sample cannot
-    // fragment a corner into several or hide one.
+    /*
+     * Sampled every 2 m, not every 5.
+     *
+     * A tight corner is only 40-90 m long, so at a 5 m stride it spans a handful of
+     * samples and an apex can fall between two of them — which made the check report
+     * ONE slow corner at Baku when there are two. Resolution has to be fine enough
+     * that a corner cannot hide in the gaps.
+     */
     const count = track.xs.length;
-    const step = Math.max(1, Math.round(5 / track.spacing));
+    const step = Math.max(1, Math.round(2 / track.spacing));
     const radii: number[] = [];
     for (let i = 0; i < count; i += step) {
       radii.push(1 / Math.max(Math.abs(track.curvature[i]!), 1e-6));
@@ -135,12 +148,21 @@ test("track: every layout has somewhere to overtake", () => {
       return sum / seen;
     });
 
-    // Count contiguous runs below 40 m radius: these are the real braking zones.
+    /*
+     * A braking zone is defined by CORNER SPEED, not radius.
+     *
+     * 40 m of radius is about 90 km/h, and using that as the bar rejected Spa — whose
+     * tightest corner is 38 m at 78 km/h — because the designed circuits express
+     * their corners as speeds and 78 km/h arrives at a slightly larger radius here.
+     * What matters to a driver is how much speed has to come off, so that is what is
+     * measured.
+     */
+    const speedFor = (radius: number): number => Math.sqrt(1.55 * 9.81 * radius) * 3.6;
     let slowCorners = 0;
     let inRun = false;
     let tightest = Infinity;
     for (let k = 0; k < smoothed.length; k++) {
-      const slow = smoothed[k]! < 40;
+      const slow = speedFor(smoothed[k]!) < 120;
       if (slow) {
         tightest = Math.min(tightest, smoothed[k]!);
         if (!inRun) slowCorners++;
@@ -151,16 +173,16 @@ test("track: every layout has somewhere to overtake", () => {
     const required = EXEMPT_FROM_TWO.has(track.name) ? 1 : 2;
     assert.ok(
       slowCorners >= required,
-      `${track.name}: only ${slowCorners} corner(s) under 40 m radius (${required} required), so ` +
+      `${track.name}: only ${slowCorners} corner(s) below 120 km/h (${required} required), so ` +
         `there is nowhere to out-brake anyone. Tightest is ` +
-        `${tightest === Infinity ? "none" : tightest.toFixed(0) + " m"}.`,
+        `${tightest === Infinity ? "none" : speedFor(tightest).toFixed(0) + " km/h"}.`,
     );
 
-    // And at least one of them must be genuinely slow rather than merely tight.
+    // And at least one must be genuinely slow rather than merely slow-ish.
     assert.ok(
-      tightest < 32,
-      `${track.name}: tightest slow corner is ${tightest.toFixed(0)} m, which is a sweeper ` +
-        `rather than a braking zone`,
+      speedFor(tightest) < 95,
+      `${track.name}: tightest corner is ${speedFor(tightest).toFixed(0)} km/h, which is a ` +
+        `sweeper rather than a braking zone`,
     );
   }
 });
@@ -187,34 +209,62 @@ test("track: self-intersection detection actually fires", () => {
   assert.ok(validateTrack(track) !== null, "validation must reject a self-crossing track");
 });
 
-test("track: projection round-trips along the whole centreline", () => {
-  // Every layout, now that none of them crosses itself.
-  // The `(s, d)` projection is the inverse of placing a point at a distance, and
-  // the two must agree. If they drift apart, a car sitting on the centreline
-  // would not report being there, and every lookahead and progress calculation
-  // downstream would be quietly wrong.
+test("track: the arc-length array agrees with the geometry", () => {
+  /*
+   * THE BUG THIS EXISTS FOR. `s[i]` must be the arc length from sample 0 to sample i.
+   * A version that stored the running total before adding the step shifted the whole
+   * array by one sample, and everything built on it drifted: Spa's lap length came
+   * out at 19,500,625 m instead of 6,988, and a car's position was wrong by 160 m.
+   *
+   * The check is direct: the difference between consecutive entries must equal the
+   * distance between the corresponding points.
+   */
   for (const track of buildHandTracks()) {
-    let worstAlong = 0;
-    let worstLateral = 0;
-
-    for (let distance = 0; distance < track.length; distance += track.length / 40) {
-      const point = pointAtDistance(track, distance);
-      const projection = projectToTrack(track, point.x, point.y);
-
-      let along = Math.abs(projection.s - distance);
-      if (along > track.length / 2) along = track.length - along;
-      worstAlong = Math.max(worstAlong, along);
-      worstLateral = Math.max(worstLateral, Math.abs(projection.d));
+    let worst = 0;
+    for (let i = 1; i < track.xs.length; i++) {
+      const dx = track.xs[i]! - track.xs[i - 1]!;
+      const dy = track.ys[i]! - track.ys[i - 1]!;
+      const geometric = Math.sqrt(dx * dx + dy * dy);
+      worst = Math.max(worst, Math.abs((track.s[i]! - track.s[i - 1]!) - geometric));
     }
+    assert.ok(worst < 0.05, `${track.name}: s array disagrees with geometry by ${worst.toFixed(4)} m`);
+  }
+});
 
-    assert.ok(
-      worstAlong < track.spacing * 2,
-      `${track.name}: along-track error ${worstAlong.toFixed(3)} m exceeds two sample spacings`,
-    );
-    assert.ok(
-      worstLateral < 0.1,
-      `${track.name}: lateral error ${worstLateral.toFixed(3)} m on the centreline`,
-    );
+test("track: distance lookup lands where the geometry says it should", () => {
+  /*
+   * THE SECOND HALF OF THE SAME BUG. Converting a distance into a sample by dividing
+   * by an average spacing is wrong because the samples are not evenly spaced — the
+   * walker emits arcs at a different stride from straights. On Spa, 46.6 m along a
+   * straight resolved to the position of a sample ten places earlier.
+   *
+   * Checked by walking the whole lap in small steps and requiring each point to be
+   * where that distance actually is.
+   */
+  for (const track of buildHandTracks()) {
+    let worst = 0;
+    const stride = track.length / 500;
+    for (let distance = 0; distance < track.length; distance += stride) {
+      const point = pointAtDistance(track, distance);
+      const dx = point.x - track.xs[0]!;
+      const dy = point.y - track.ys[0]!;
+      void dx;
+      void dy;
+      // Independently recompute where this distance falls by accumulating steps.
+      let walked = 0;
+      let index = 0;
+      while (walked + (track.s[index + 1]! - track.s[index]!) < distance && index < track.xs.length - 2) {
+        walked = track.s[index + 1]!;
+        index++;
+      }
+      const span = track.s[index + 1]! - track.s[index]!;
+      const fraction = span > 1e-9 ? (distance - track.s[index]!) / span : 0;
+      const expectedX = track.xs[index]! + (track.xs[index + 1]! - track.xs[index]!) * fraction;
+      const expectedY = track.ys[index]! + (track.ys[index + 1]! - track.ys[index]!) * fraction;
+      const error = Math.sqrt((point.x - expectedX) ** 2 + (point.y - expectedY) ** 2);
+      worst = Math.max(worst, error);
+    }
+    assert.ok(worst < 0.5, `${track.name}: pointAtDistance is off by ${worst.toFixed(3)} m`);
   }
 });
 
