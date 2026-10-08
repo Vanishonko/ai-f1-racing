@@ -33,7 +33,57 @@ Known flaws, recorded rather than hidden:
   the trainer can discover modulation anyway, and the launch sweep shows a real
   optimum at about 70% throttle.
 
-Track state (all four now clean — no self-crossings, no surface overlap):
+### Track generation: what failed, and the honest assessment
+
+Asked to generate the tracks properly rather than ship circles and rectangles. I
+could not do it, and the reasons are worth recording so it is not retried blindly.
+
+**The solver is correct.** `trackDesign.ts` fixes the turn ANGLES and solves for
+the straight lengths. With angles fixed the endpoint is affine in each length, so
+each can be solved in closed form in turn and coordinate descent converges to
+zero. Verified: irregular angle sets close to 0.0000 m. A previous closed-form
+polygon identity was tried and abandoned — it closed a square exactly and was
+0.7 m wrong on an irregular quadrilateral, which is the case that matters.
+
+**But closure does not imply a valid shape.** Two failure modes, both fatal:
+
+- A closed polygon with unequal straights WRAPS AROUND ITSELF. A design that closed
+  perfectly plotted as a spiral, because straights of 300 m and 846 m in the same
+  loop make it wind.
+- Crossing is structural in the ANGLE PATTERN, not the radii. Scaling every corner
+  radius from 1.0x down to 0.16x left the crossing count at 2 through the whole
+  range: the angles set the shape, and radii only change how tightly the path turns
+  through it. So no amount of tuning fixes a pattern that crosses.
+
+Roughly sixty thousand generated designs were attempted in total. Those that closed
+and did not cross were never also well proportioned, and vice versa.
+
+**Two things that were claimed and were wrong.** A "chicane block" described as
+provably heading- and position-neutral displaces by 90 m sideways, not the 4R
+forward I calculated; a rotation was omitted from the composition. And an earlier
+claim that the club had three slow corners at 58 km/h was measured on a version
+that had already been replaced. Both are recorded because the pattern — asserting a
+geometric result without measuring it — is what wasted most of this session.
+
+**What is actually true of the shipped tracks**, measured corner by corner:
+
+| track | length | corners | speeds | longest straight |
+|---|---|---|---|---|
+| The Oval | 2319 m | 2 | 126 km/h | 1105 m |
+| Hairpin | 2313 m | 5 | 76-127 km/h | 855 m |
+| Chicane | 2504 m | 7 | 63-132 km/h | 925 m |
+| Club Circuit | 3516 m | 13 | 64-137 km/h | 845 m |
+
+All four are clean: no self-crossings, no surface overlaps, projections exact.
+
+**THE REAL FAULT, which the user identified and I had not measured:** no corner on
+any track exceeds 175 km/h. Everything sits in a 63-137 km/h band. The car is
+capable of 300 km/h and the circuits never ask for it, so there is no high-speed
+section, no heavy braking from top speed, and therefore no real variety. The Chicane
+and Club are legitimate circuits with straights and multiple corner types; the Oval
+genuinely is a rounded rectangle and should be replaced rather than kept.
+
+Track state (all four clean — no self-crossings, no surface overlap):
 
 | track | length | tightest corner |
 |---|---|---|

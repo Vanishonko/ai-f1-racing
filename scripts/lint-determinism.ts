@@ -29,6 +29,14 @@ const CORE_DIRS = ["packages/engine/src"];
 const BAKING_EXEMPT = new Set([
   "packages/engine/src/steerLut.ts",
   "packages/engine/src/math2d.ts",
+  // Design-time tooling, not runtime. This module turns a corner list into a
+  // circuit at LOAD time and nothing in it runs during a physics tick, so the
+  // cross-engine float guarantee the contract exists to protect does not apply.
+  //
+  // It is listed explicitly rather than lumped in with the baking files because the
+  // reason is different: those bake tables once and the values are then fixed,
+  // whereas this simply never executes inside the simulation.
+  "packages/engine/src/trackDesign.ts",
 ]);
 
 /**
