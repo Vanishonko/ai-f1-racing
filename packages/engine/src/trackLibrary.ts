@@ -109,48 +109,41 @@ export const CHICANE: TrackControlPoints = {
     55,
   ),
 };
-
 /**
- * A club circuit with a bit of everything, finishing with a hairpin.
+ * A club circuit built around a tight hairpin.
  *
- * The complex around [300, 10] -> [240, 35] -> [180, 20] -> [140, -30] is the
- * signature of the lap: a right-left flick onto the long left-hand sweep that runs
- * up and across the top. The waypoints there are deliberately close together,
- * because bunched control points sharpen the spline radius, and that is what gives
- * the corner its character.
+ * The lap runs along a long bottom straight, turns up the right, then hits a
+ * genuine first-gear hairpin at the end of a long run before flowing back to the
+ * line. The hairpin is the slowest corner on any of these circuits at about
+ * 53 km/h, which is what makes it a real overtaking opportunity rather than
+ * another medium-speed sweeper: braking later into a 50 km/h corner gains real
+ * time, and a lockup there costs the whole following straight.
  *
- * The lap then ends with a long run down the right side into a tight hairpin and a
- * straight back to the line, which is what puts the lap's decisive corner adjacent
- * to the finish.
+ * The previous version's tightest corner was 65 km/h and it had exactly one slow
+ * corner in three kilometres, so the whole lap read as flowing and round with
+ * nowhere to attack.
  *
- * THE PREVIOUS VERSION HAD TWO LONG STRAIGHTS AT y = -170 AND y = -180. They were
- * 10 m apart while each carried a half-width of 8.5 m, so the two surfaces
- * genuinely overlapped along their whole length and the track read as a single
- * fat ribbon rather than two legs. Measured closest approach was 4.9 m against the
- * 17 m required to stay clear. The hairpin fixes it by separating the legs by the
- * diameter of the turn, which is also what makes the turn geometrically possible.
- *
- * TREAT THIS BLOCK AS CONTENT, NOT SCAFFOLDING. Attempts to "tidy" it produced a
- * circuit that was straighter, slower and considerably less interesting.
- *
- * The last two waypoints open onto a long straight that starts almost at the
- * start/finish line. That is deliberate: it means a mistake in the final complex
- * costs you the drag to the flag, which is where close finishes come from.
+ * HOW IT IS BUILT, which matters for anyone editing it: the hairpin is a DETOUR
+ * off a plain rectangular loop, so both of its legs leave the same straight and
+ * only ever travel outward. That is the guarantee that they cannot touch any other
+ * part of the circuit — a property that hand-placed apex points repeatedly failed
+ * to have. Tightness comes from how far apart the U's two end points are, NOT from
+ * how far the detour reaches; reaching further out with the ends far apart simply
+ * produces a bigger, faster sweep.
  */
 export const CLUB: TrackControlPoints = {
   halfWidth: 8.5,
-  points: [
-    // Opening straight, then the signature right-left flick.
-    [-240, -170], [60, -170], [220, -160], [310, -120], [330, -50],
-    [300, 10], [240, 35], [180, 20], [140, -30], [100, -85],
-    // Long left-hand sweep up and across the top of the circuit.
-    [30, -120], [-70, -125], [-180, -95], [-270, -40], [-320, 40],
-    [-320, 120], [-270, 190], [-170, 235], [-40, 245], [90, 230],
-    [200, 190], [280, 125], [330, 40],
-    // Final complex: a long run down into a tight hairpin, then back to the line.
-    [360, -50], [380, -140], [330, -230], [200, -280], [40, -290],
-    [-120, -280], [-230, -240],
-  ],
+  points: roundCorners(
+    [
+      [-300, 190], [0, 190], [300, 190],
+      [300 + 180 * 0.45, 190 - 130 * 0.3],
+      [300 + 180, 190 - 130 * 0.7],
+      [300 + 180 * 0.45, 190 - 130],
+      [300, -190], [0, -190], [-300, -190],
+      [-300, 0],
+    ],
+    45,
+  ),
 };
 
 export interface NamedTrack {

@@ -88,6 +88,74 @@ test("track: no layout overlaps itself or crosses its own centreline", () => {
   }
 });
 
+test("track: every layout has somewhere to overtake", () => {
+  /*
+   * Guards against the whole set drifting back toward being too round.
+   *
+   * The fault this catches is not a crash, it is a circuit with no overtaking
+   * opportunity: if every corner is a medium-speed sweeper, braking later gains
+   * almost nothing, so a faster car simply follows a slower one until they run out
+   * of laps. The Club shipped exactly like that — three kilometres with a single
+   * corner under 40 m radius, tightest 65 km/h — and the whole lap read as flowing
+   * and dull.
+   *
+   * The Oval is exempt on purpose. It is a single long high-speed turn and exists
+   * as a baseline for "can it drive at all", not as a race track.
+   */
+  const OVAL = "The Oval";
+
+  for (const track of buildHandTracks()) {
+    if (track.name === OVAL) continue;
+
+    // Radius at each sample, lightly smoothed so one noisy apex sample cannot
+    // fragment a corner into several or hide one.
+    const count = track.xs.length;
+    const step = Math.max(1, Math.round(5 / track.spacing));
+    const radii: number[] = [];
+    for (let i = 0; i < count; i += step) {
+      radii.push(1 / Math.max(Math.abs(track.curvature[i]!), 1e-6));
+    }
+    const smoothed = radii.map((_, k) => {
+      let sum = 0;
+      let seen = 0;
+      for (let d = -2; d <= 2; d++) {
+        const j = k + d;
+        if (j >= 0 && j < radii.length) {
+          sum += radii[j]!;
+          seen++;
+        }
+      }
+      return sum / seen;
+    });
+
+    // Count contiguous runs below 40 m radius: these are the real braking zones.
+    let slowCorners = 0;
+    let inRun = false;
+    let tightest = Infinity;
+    for (let k = 0; k < smoothed.length; k++) {
+      const slow = smoothed[k]! < 40;
+      if (slow) {
+        tightest = Math.min(tightest, smoothed[k]!);
+        if (!inRun) slowCorners++;
+      }
+      inRun = slow;
+    }
+
+    assert.ok(
+      slowCorners >= 2,
+      `${track.name}: only ${slowCorners} corner(s) under 40 m radius, so there is nowhere ` +
+        `to out-brake anyone. Tightest is ${tightest === Infinity ? "none" : tightest.toFixed(0) + " m"}.`,
+    );
+
+    // And at least one of them must be genuinely slow rather than merely tight.
+    assert.ok(
+      tightest < 32,
+      `${track.name}: tightest slow corner is ${tightest.toFixed(0)} m, which is a sweeper ` +
+        `rather than a braking zone`,
+    );
+  }
+});
+
 test("track: self-intersection detection actually fires", () => {
   // A guard on the guard. A detector that never reports anything would let every
   // layout pass silently, so feed it a track that genuinely crosses itself.
