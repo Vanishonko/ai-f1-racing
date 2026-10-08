@@ -37,6 +37,7 @@ import {
 import { roundCorners } from "./fillet.ts";
 import { corner, solveDesign, type DesignSpec } from "./trackDesign.ts";
 import { buildDesignedTrack } from "./trackRecipes.ts";
+import { SPA_FRANCORCHAMPS } from "./spaFrancorchamps.ts";
 
 /**
  * A generous oval: two long straights joined by sweeping constant-radius turns.
@@ -177,20 +178,13 @@ export const CLUB: TrackControlPoints = {
 
 
 /*
- * SPA, built from a searched angle set and its real corner characters.
- *
- * 6988 m against the real circuit's 7004, six corners spanning 78-250 km/h, and a
- * 78 km/h hairpin fed by an 1812 m straight. The character is right: flat-out
- * corners, one very long straight, and a slow hairpin at the end of it.
- *
- * Replaces "The Oval", which was two corners of identical radius and a great deal
- * of straight — a shape, not a circuit.
+ * SPA-FRANCORCHAMPS, traced from the real circuit. See `spaFrancorchamps.ts` for
+ * where the coordinates come from and, more importantly, why building it by
+ * choosing turn angles could never have worked.
  */
-const SPA_DESIGN: DesignSpec = {
-  name: "Spa-Francorchamps",
-  halfWidth: 9.5,
-  corners: [60, 45, 150, -30, 75, 60].map((a, i) => corner(a, [145, 250, 105, 78, 195, 78][i]!)),
-  preferredStraights: [350, 900, 700, 1020, 1040, 1020],
+const SPA_SPEC: TrackControlPoints = {
+  halfWidth: 10,
+  points: SPA_FRANCORCHAMPS.map(([x, y]) => [x, y] as [number, number]),
 };
 
 /*
@@ -219,7 +213,7 @@ export interface NamedTrack {
 }
 
 export const HAND_TRACKS: ReadonlyArray<NamedTrack> = [
-  { key: "spa", name: "Spa-Francorchamps", spec: null, design: SPA_DESIGN },
+  { key: "spa", name: "Spa-Francorchamps", spec: SPA_SPEC, design: null },
   { key: "baku", name: "Baku City", spec: null, design: BAKU_DESIGN },
   { key: "chicane", name: "Chicane", spec: CHICANE, design: null },
   { key: "club", name: "Club Circuit", spec: CLUB, design: null },
