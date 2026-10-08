@@ -24,14 +24,43 @@ import {
   type CarState,
   type StepContext,
 } from "../../engine/src/car.ts";
-import { buildHandTrack } from "../../engine/src/trackLibrary.ts";
+import { buildHandTrack, HAND_TRACKS, DEFAULT_TRACK_KEY } from "../../engine/src/trackLibrary.ts";
 import { projectToTrack, pointAtDistance, type Track } from "../../engine/src/track.ts";
 import { gripNoiseAt } from "../../engine/src/rng.ts";
+import { tireForces } from "../../engine/src/tire.ts";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
 
-const track: Track = buildHandTrack("club")!;
+/**
+ * The active track. Swappable at runtime, which is the whole point of having a
+ * track library: a driver that is quick on one layout and slow on another is the
+ * interesting case, and it is impossible to notice that without switching.
+ */
+let track: Track = buildHandTrack(DEFAULT_TRACK_KEY)!;
+
+/**
+ * Debug and measurement handle, exposed on `window`.
+ *
+ * It exists because steering direction is the one property no engine test can
+ * check: every force and moment can be self-consistent while the car turns the
+ * wrong way, and that is exactly what happened. Reading the live heading out of a
+ * running page is how the convention was finally settled.
+ *
+ * The track field must be REASSIGNED on every circuit switch. Capturing the object
+ * once at startup snapshots the value, so measurements would silently describe the
+ * track you had just left.
+ */
+interface SimHandle {
+  car: typeof car;
+  track: Track;
+  params: typeof params;
+  stepContext: StepContext;
+  resetToStart: () => void;
+  held: Set<string>;
+  selectTrack: (key: string) => void;
+}
+let simHandle: SimHandle | null = null;
 const car: CarState = createCarState();
 const params = DEFAULT_CAR_PARAMS;
 const stepContext: StepContext = { ...CLEAN_AIR };
@@ -64,6 +93,25 @@ const resetToStart = (): void => {
   car.saturatedTime = 0;
   car.distance = 0;
   trail.length = 0;
+};
+
+/**
+ * Switches circuits.
+ *
+ * The camera refits on the next frame, so a small track and a large one are both
+ * framed sensibly without any per-track tuning. What you learn from switching is
+ * the point: a genome that is quick here and slow there is the interesting case,
+ * and it is invisible on a single layout.
+ */
+const selectTrack = (key: string): void => {
+  const next = buildHandTrack(key);
+  if (!next) return;
+  track = next;
+  // The debug handle must be updated too. Assigning the object once at startup
+  // captures the VALUE, so after a switch it kept pointing at the old circuit and
+  // every measurement taken through it was of the track we had just left.
+  if (simHandle) simHandle.track = next;
+  resetToStart();
 };
 
 resetToStart();
@@ -110,9 +158,48 @@ const readInputs = (): void => {
   // Q halves brake pressure: the difference between stamping on the pedal and
   // braking at the limit is the whole point of the tire model, so it needs a key.
   stepContext.brakeScale = held.has("q") ? 0.5 : 1;
+
+  // Number keys pick a circuit, which is quicker than reaching for the dropdown.
+
 };
 
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+/**
+ * Wires the circuit dropdown and the number keys.
+ *
+ * Both exist because they are useful in different moments: the dropdown says what
+ * is available, the number keys let you flick between layouts without leaving the
+ * wheel.
+ */
+const setupTrackSelector = (): void => {
+  const select = document.getElementById("trackSelect") as HTMLSelectElement | null;
+  if (!select) return;
+
+  for (const entry of HAND_TRACKS) {
+    const option = document.createElement("option");
+    option.value = entry.key;
+    option.textContent = entry.name;
+    select.appendChild(option);
+  }
+  select.value = HAND_TRACKS.find((t) => t.name === track.name)?.key ?? DEFAULT_TRACK_KEY;
+  select.addEventListener("change", () => selectTrack(select.value));
+
+  window.addEventListener("keydown", (event) => {
+    const index = Number(event.key) - 1;
+    if (Number.isInteger(index) && index >= 0 && index < HAND_TRACKS.length) {
+      const key = HAND_TRACKS[index]!.key;
+      select.value = key;
+      selectTrack(key);
+    }
+  });
+};
+setupTrackSelector();
+
+simHandle = {
+  car, track, params, stepContext, resetToStart, held, selectTrack,
+};
+(window as unknown as { sim: SimHandle }).sim = simHandle;
 
 // ---------------------------------------------------------------------------
 // Tire smoke
@@ -326,30 +413,44 @@ const drawTrail = (): void => {
   }
 };
 
-const drawWheelForces = (): void => {
-  const scale = camera.scale * 0.02;
+/**
+ * The four wheel contact points, in world coordinates.
+ *
+ * One place that knows how to map the car's body frame onto the world, so the
+ * rings, the vectors and the smoke cannot drift out of agreement with each other.
+ */
+const wheelContacts = (): Array<[number, number]> => {
   const offsets: Array<[number, number]> = [
     [params.cgToFront, params.trackFront / 2],
     [params.cgToFront, -params.trackFront / 2],
     [-params.cgToRear, params.trackRear / 2],
     [-params.cgToRear, -params.trackRear / 2],
   ];
-
   const cos = Math.cos(car.heading);
   const sin = Math.sin(car.heading);
+  return offsets.map(([forward, lateral]) => [
+    car.x + forward * cos - lateral * sin,
+    car.y + forward * sin + lateral * cos,
+  ]);
+};
 
+/**
+ * GRIP RINGS: how much of each tire's friction budget is in use, and how hard it
+ * is being pressed into the road.
+ *
+ * Ring SIZE is the normal load, ring COLOUR is utilization. Read together they
+ * show load transfer directly: under braking the front rings swell and go red
+ * while the rears shrink and cool down. That is the single most useful thing to
+ * watch when tuning, and it is a completely different quantity from the force
+ * vectors below.
+ */
+const drawGripRings = (): void => {
+  const contacts = wheelContacts();
   for (let w = 0; w < 4; w++) {
-    const [forward, lateral] = offsets[w]!;
-    // Body frame to world: forward along heading, lateral to the left.
-    const wx = car.x + forward * cos - lateral * sin;
-    const wy = car.y + forward * sin + lateral * cos;
-
+    const [wx, wy] = contacts[w]!;
     const load = car.normalLoad[w]!;
     const used = car.utilization[w]!;
 
-    // A ring sized by load and coloured by how much of the friction circle is
-    // spent. This is the overlay that makes lockup visible: the ring goes red and
-    // the tire stops producing the force the driver is asking for.
     const radius = Math.max(3, Math.sqrt(load) * 0.055 * camera.scale);
     ctx.beginPath();
     ctx.arc(toScreenX(wx), toScreenY(wy), radius, 0, Math.PI * 2);
@@ -361,6 +462,82 @@ const drawWheelForces = (): void => {
       ctx.fillStyle = "rgba(255,59,48,0.22)";
       ctx.fill();
     }
+  }
+};
+
+/**
+ * FORCE VECTORS: the tire force at each contact patch, drawn as an arrow.
+ *
+ * Deliberately a different quantity from the grip rings, because an earlier
+ * version wired both checkboxes to the same drawing function, which made one of
+ * them useless and hid whatever the other would have shown.
+ *
+ * This is the overlay that explains behaviour rather than just reporting it. A
+ * locked front shows a long arrow pointing BACKWARDS along the car's motion and
+ * almost nothing sideways, which is the visual proof of why the car will not turn:
+ * the tire is still braking hard, it has simply stopped pushing across.
+ *
+ * Forces are recomputed here from the live car state rather than stored by the
+ * engine, so nothing is added to the physics or to the replay format for the sake
+ * of a debug drawing.
+ */
+const drawForceVectors = (): void => {
+  const contacts = wheelContacts();
+  const cos = Math.cos(car.heading);
+  const sin = Math.sin(car.heading);
+  // Newtons to pixels: 4000 N should be a clearly visible but not silly arrow.
+  const newtonScale = camera.scale * 0.00035;
+
+  for (let w = 0; w < 4; w++) {
+    const isFront = w === 0 || w === 1;
+    const Fz = Math.max(0, car.normalLoad[w]!);
+    if (Fz < 1) continue;
+
+    const cgOffset = isFront ? params.cgToFront : -params.cgToRear;
+    const steer = isFront ? car.steerAngle : 0;
+    const c = Math.cos(steer);
+    const sn = Math.sin(steer);
+
+    const vxW = car.vx * c + (car.vy + car.yawRate * cgOffset) * sn;
+    const vyW = -car.vx * sn + (car.vy + car.yawRate * cgOffset) * c;
+    const reference = Math.abs(vxW) < 1 ? 1 : Math.abs(vxW);
+    const slipRatio = (car.omega[w]! * params.wheelRadius - vxW) / reference;
+    const slipAngle = vyW / reference;
+
+    const force = tireForces(Fz, slipRatio, slipAngle, 1, params.tire, car.omega[w]!);
+
+    // Wheel frame back to body frame, then body frame to world.
+    const fxBody = force.fx * c - force.fy * sn;
+    const fyBody = force.fx * sn + force.fy * c;
+    const fxWorld = fxBody * cos - fyBody * sin;
+    const fyWorld = fxBody * sin + fyBody * cos;
+
+    const [wx, wy] = contacts[w]!;
+    const x0 = toScreenX(wx);
+    const y0 = toScreenY(wy);
+    const x1 = toScreenX(wx + fxWorld * newtonScale);
+    const y1 = toScreenY(wy + fyWorld * newtonScale);
+
+    const length = Math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2);
+    if (length < 3) continue;
+
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.strokeStyle = car.saturated[w] === 1 ? "#ff3b30" : "#5b9dff";
+    ctx.lineWidth = Math.max(1.5, 0.35 * camera.scale);
+    ctx.stroke();
+
+    // Arrowhead.
+    const angle = Math.atan2(y1 - y0, x1 - x0);
+    const head = Math.min(7, length * 0.4);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x1 - head * Math.cos(angle - 0.4), y1 - head * Math.sin(angle - 0.4));
+    ctx.lineTo(x1 - head * Math.cos(angle + 0.4), y1 - head * Math.sin(angle + 0.4));
+    ctx.closePath();
+    ctx.fillStyle = car.saturated[w] === 1 ? "#ff3b30" : "#5b9dff";
+    ctx.fill();
   }
 };
 
@@ -485,7 +662,6 @@ resize();
  * actual heading and position out of a running page is how the convention gets
  * verified end to end.
  */
-(window as unknown as { sim: unknown }).sim = { car, track, params, stepContext, resetToStart, held };
 
 let accumulator = 0;
 let lastTime = performance.now();
@@ -521,8 +697,8 @@ const frame = (now: number): void => {
   drawTrack();
   drawTrail();
   drawSmoke();
-  if ((document.getElementById("rays") as HTMLInputElement).checked) drawWheelForces();
-  if ((document.getElementById("ghost") as HTMLInputElement).checked) drawWheelForces();
+  if ((document.getElementById("rays") as HTMLInputElement).checked) drawGripRings();
+  if ((document.getElementById("ghost") as HTMLInputElement).checked) drawForceVectors();
   drawCar();
   updatePanel();
 

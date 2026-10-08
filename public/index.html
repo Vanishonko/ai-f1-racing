@@ -44,6 +44,10 @@
   }
   .keys { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; align-items: center; }
   .hint { color: var(--dim); font-size: 11px; }
+  select {
+    background: #1e242b; color: var(--text); border: 1px solid var(--line);
+    border-radius: 4px; padding: 5px 7px; font: inherit; width: 100%; cursor: pointer;
+  }
   label { display: flex; align-items: center; gap: 6px; color: var(--dim); cursor: pointer; }
   input[type=checkbox] { accent-color: var(--ok); }
 </style>
@@ -51,7 +55,8 @@
 <body>
   <div id="stage"><canvas id="view"></canvas></div>
   <aside>
-    <h1>Telemetry</h1>
+    <h1>Circuit</h1>
+    <select id="trackSelect"></select>
     <div>
       <div class="big"><span id="speed">0</span><span class="unit"> km/h</span></div>
       <div class="row"><span>gear</span><span id="gear">1</span></div>
@@ -76,9 +81,9 @@
     </section>
 
     <section>
-      <label><input type="checkbox" id="rays" checked> grip / load overlay</label>
+      <label><input type="checkbox" id="rays" checked> grip rings (load + utilization)</label>
+      <label><input type="checkbox" id="ghost"> force vectors (per-tire, N)</label>
       <label><input type="checkbox" id="follow"> chase camera</label>
-      <label><input type="checkbox" id="ghost"> tire force vectors</label>
       <label><input type="checkbox" id="smoke"> tire smoke (crude)</label>
     </section>
 
@@ -92,6 +97,7 @@
         <kbd>Q</kbd><span class="hint">brake pressure 50% (threshold feel)</span>
         <kbd>R</kbd><span class="hint">reset to start line</span>
         <kbd>space</kbd><span class="hint">handbrake-style lock, all four</span>
+        <kbd>1-4</kbd><span class="hint">switch circuit</span>
       </div>
       <p class="hint">
         Hit a corner hard on the brakes and watch the front lock counter climb:

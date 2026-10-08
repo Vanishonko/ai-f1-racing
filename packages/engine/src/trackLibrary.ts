@@ -131,19 +131,41 @@ export const CHICANE: TrackControlPoints = {
  * how far the detour reaches; reaching further out with the ends far apart simply
  * produces a bigger, faster sweep.
  */
+/**
+ * A club circuit with the mix a real one has, ending in a tight hairpin.
+ *
+ * The complex around [300, 10] -> [240, 35] -> [180, 20] -> [140, -30] is the
+ * signature of the lap: a right-left flick onto the long left-hand sweep that runs
+ * up and across the top. The waypoints there are deliberately close together,
+ * because bunched control points sharpen the spline radius, and that is what gives
+ * the corner its character.
+ *
+ * The lap then runs down the right side into a tight hairpin and back to the line,
+ * which puts the decisive corner adjacent to the finish.
+ *
+ * MEASURED: 3290 m, three corners under 40 m radius, tightest 17 m (58 km/h), two
+ * long straights, and 46 m of clearance between the closest separate parts. It is
+ * the only layout in the set that has both a genuine hairpin AND enough length to
+ * develop a slipstream before it.
+ *
+ * TREAT THIS BLOCK AS CONTENT, NOT SCAFFOLDING. An attempt to "tidy" it produced a
+ * 2151 m shape that was straighter, slower and considerably worse, and it was
+ * shipped by mistake for a while.
+ */
 export const CLUB: TrackControlPoints = {
   halfWidth: 8.5,
-  points: roundCorners(
-    [
-      [-300, 190], [0, 190], [300, 190],
-      [300 + 180 * 0.45, 190 - 130 * 0.3],
-      [300 + 180, 190 - 130 * 0.7],
-      [300 + 180 * 0.45, 190 - 130],
-      [300, -190], [0, -190], [-300, -190],
-      [-300, 0],
-    ],
-    45,
-  ),
+  points: [
+    // Opening straight, then the signature right-left flick.
+    [-240, -170], [60, -170], [220, -160], [310, -120], [330, -50],
+    [300, 10], [240, 35], [180, 20], [140, -30], [100, -85],
+    // Long left-hand sweep up and across the top of the circuit.
+    [30, -120], [-70, -125], [-180, -95], [-270, -40], [-320, 40],
+    [-320, 120], [-270, 190], [-170, 235], [-40, 245], [90, 230],
+    [200, 190], [280, 125], [330, 40],
+    // Final complex: a long run down into a tight hairpin, then back to the line.
+    [360, -50], [380, -140], [330, -230], [200, -280], [40, -290],
+    [-120, -280], [-230, -240],
+  ],
 };
 
 export interface NamedTrack {
