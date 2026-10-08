@@ -265,7 +265,14 @@ export const buildTrack = (
  * Uses a truncating division rather than a modulo so a negative or very large
  * distance still lands in range.
  */
-const sampleIndexAt = (track: Track, distance: number): number => {
+/**
+ * The sample index containing a given distance along the track.
+ *
+ * Exported because tools outside the simulation need to look up track properties by distance —
+ * curvature ahead of a car, for instance — and reimplementing the arc-length search elsewhere
+ * would be a second place for it to be wrong.
+ */
+export const sampleIndexAt = (track: Track, distance: number): number => {
   const count = track.s.length;
   if (count === 0) return 0;
 

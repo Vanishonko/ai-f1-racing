@@ -204,6 +204,10 @@ const aiControls = { throttle: 0, brake: 0, steer: 0 };
 /** True when the AI is driving rather than the keyboard. */
 let aiDriving = false;
 
+/** The circuit key currently selected, for the status poll. */
+const currentCircuitKey = (): string =>
+  CIRCUITS.find((entry) => entry.name === track.name)?.key ?? DEFAULT_TRACK_KEY;
+
 /**
  * Loads a checkpoint saved by the trainer.
  *
@@ -251,6 +255,118 @@ const fetchDriverFor = async (circuitKey: string): Promise<void> => {
     driverInfo = null;
     if (status) status.textContent = "checkpoint could not be read";
   }
+};
+
+/**
+ * A training run's live status, polled from the server.
+ *
+ * THE POINT IS TO WATCH THE SEARCH, not only its result. A long run once improved for six
+ * generations and then achieved nothing for five thousand more, and the only trace was a number in
+ * a log file. Showing the curve, the health warning and the current best driver on screen is what
+ * turns "left running" into "being watched".
+ */
+interface TrainingStatus {
+  circuit: string;
+  generation: number;
+  elapsed: number;
+  secondsPerGeneration: number;
+  bestGeneration: number;
+  bestFitness: number;
+  currentFitness: number;
+  meanDistance: number;
+  meanOnTrack: number;
+  warning: string;
+  genes: number[];
+}
+
+let trainingStatus: TrainingStatus | null = null;
+/** Recent best-fitness values, for the sparkline. */
+const fitnessHistory: number[] = [];
+
+const pollTraining = async (circuitKey: string): Promise<void> => {
+  try {
+    const response = await fetch(`/checkpoints/${circuitKey}.status.json`, { cache: "no-store" });
+    if (!response.ok) {
+      trainingStatus = null;
+      return;
+    }
+    const record = (await response.json()) as TrainingStatus;
+    trainingStatus = record;
+    if (fitnessHistory.length === 0 || record.bestFitness !== fitnessHistory[fitnessHistory.length - 1]) {
+      fitnessHistory.push(record.bestFitness);
+      if (fitnessHistory.length > 240) fitnessHistory.shift();
+    }
+    /*
+     * Keep the driven driver in step with the search. Only when the elite has actually changed,
+     * so a driver mid-corner is not swapped out from under itself.
+     */
+    if (aiDriving && Array.isArray(record.genes) && record.genes.length === PARAMETER_COUNT) {
+      if (!driverInfo || driverInfo.generation !== record.bestGeneration) {
+        driver = createDriver(Float64Array.from(record.genes), () => 0);
+        driverInfo = {
+          generation: record.bestGeneration,
+          fitness: record.bestFitness,
+          trainedSeconds: record.secondsPerGeneration > 0 ? 0 : 0,
+          circuit: record.circuit,
+        };
+      }
+    }
+  } catch {
+    trainingStatus = null;
+  }
+};
+
+/** Draws the training curve as a simple sparkline. */
+const drawFitnessSpark = (): void => {
+  const canvasEl = document.getElementById("fitness-spark") as HTMLCanvasElement | null;
+  if (!canvasEl) return;
+  const ctx2 = canvasEl.getContext("2d");
+  if (!ctx2) return;
+  const { width, height } = canvasEl;
+  ctx2.clearRect(0, 0, width, height);
+  if (fitnessHistory.length < 2) return;
+
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const value of fitnessHistory) {
+    if (value < lo) lo = value;
+    if (value > hi) hi = value;
+  }
+  const span = hi - lo || 1;
+  ctx2.strokeStyle = "#b57bff";
+  ctx2.lineWidth = 1.5;
+  ctx2.beginPath();
+  for (let i = 0; i < fitnessHistory.length; i++) {
+    const x = (i / (fitnessHistory.length - 1)) * width;
+    const y = height - ((fitnessHistory[i]! - lo) / span) * height;
+    if (i === 0) ctx2.moveTo(x, y);
+    else ctx2.lineTo(x, y);
+  }
+  ctx2.stroke();
+};
+
+/** Writes the training panel. */
+const updateTrainingPanel = (): void => {
+  const field = (id: string, value: string): void => {
+    const node = document.getElementById(id);
+    if (node) node.textContent = value;
+  };
+  if (!trainingStatus) {
+    field("train-state", "no run in progress");
+    field("train-gen", "--");
+    field("train-best", "--");
+    field("train-mean", "--");
+    field("train-warn", "");
+    drawFitnessSpark();
+    return;
+  }
+  const t = trainingStatus;
+  field("train-state", "running");
+  field("train-gen", `${t.generation}  (best at ${t.bestGeneration})`);
+  field("train-best", `${(t.bestFitness * 3.6).toFixed(1)} km/h avg`);
+  field("train-mean", `${t.meanDistance.toFixed(0)} m, ${(t.meanOnTrack * 100).toFixed(0)}% on track`);
+  field("train-warn", t.warning ? `WARNING: ${t.warning}` : "");
+  drawFitnessSpark();
 };
 
 /** Writes the checkpoint's own metadata into the driver panel. */
@@ -376,6 +492,13 @@ const setupDriverToggle = (): void => {
 setupTrackSelector();
 setupDriverToggle();
 void fetchDriverFor(DEFAULT_TRACK_KEY);
+
+/*
+ * Poll the training status twice a second. A run publishes after every generation, so this is
+ * comfortably ahead of it, and the request is a small file rather than anything computed.
+ */
+void pollTraining(DEFAULT_TRACK_KEY);
+setInterval(() => { void pollTraining(currentCircuitKey()); }, 500);
 
 simHandle = {
   car, track, params, stepContext, resetToStart, held, selectTrack,
@@ -896,6 +1019,7 @@ const frame = (now: number): void => {
   if (trail.length > TRAIL_LENGTH) trail.shift();
 
   updateDriverPanel();
+  updateTrainingPanel();
   updateTimingPanel();
   updateCamera();
   ctx.fillStyle = REDRAW.sky;

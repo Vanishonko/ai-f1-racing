@@ -7,8 +7,10 @@
  *
  * WHAT MAKES A GOOD RACE DRIVER, and what is therefore rewarded:
  *
- *  - DISTANCE COVERED, as the backbone. Everything else is a modifier on it, so a driver
- *    cannot score well by being safe and slow.
+ *  - AVERAGE SPEED, as the backbone — distance over the run's duration, which is what the sport
+ *    means by pace. Everything else is a modifier on it, so a driver cannot score well by being
+ *    safe and slow. Distance alone was tried and is WRONG: it makes braking a cost, because a car
+ *    that slows for a corner covers less ground. See `FITNESS_WEIGHTS`.
  *  - STAYING ON THE CIRCUIT. Off-track time is penalised, and penalised in PROPORTION to
  *    how far off, because a wheel over the line is a small mistake and a car in the
  *    barriers is a large one. A cliff-edge penalty at the track limit would make the
@@ -40,9 +42,10 @@ import {
   type CarState,
   type StepContext,
 } from "./car.ts";
-import { drive, type Controls, type Driver } from "./driver.ts";
+import { driveSmoothed, type Controls, type Driver } from "./driver.ts";
 import { createObservation, observe, type Observation } from "./sense.ts";
 import { gripNoiseAt } from "./rng.ts";
+import { MAX_STEER_ANGLE } from "./steerLut.ts";
 import { pointAtDistance, type Track } from "./track.ts";
 
 /** Physics timestep. Fixed, because the whole evaluation depends on it. */
@@ -56,6 +59,18 @@ export const DT = 1 / 60;
  * every generation pays this, which is the dominant expense of a training run.
  */
 export const DEFAULT_RUN_SECONDS = 90;
+
+/*
+ * WHY THE EVALUATION LENGTH MATTERS MORE THAN IT LOOKS.
+ *
+ * A driver trained on 45-second runs scored 856 m over 45 s and only 1522 m over 120 s — it fell
+ * apart past the window it was selected in, and nothing in the training output said so. A short
+ * evaluation does not merely cost accuracy, it selects for drivers that peak early.
+ *
+ * The default is a lap and a half of the shortest circuit in the set, which is enough for a driver
+ * to reach every corner type more than once. Anything evaluating a trained driver should use the
+ * same value, which is what `bestDriver`-based verification in the tests does.
+ */
 
 /**
  * Where a car starts, cached per circuit.
@@ -113,8 +128,17 @@ export interface RunResult {
   wheelspinFraction: number;
   /** Laps completed, counted from crossings of the start line. */
   laps: number;
-  /** The scalar the search actually selects on. */
+  /** The scalar the search actually selects on: mean speed in metres per second, adjusted. */
   fitness: number;
+  /** Mean speed over the run [m/s]. The headline number the objective is built on. */
+  averageSpeed: number;
+  /**
+   * Steering travel per hundred metres, in units of full lock.
+   *
+   * A smoothness measure worth reporting on its own: low means the driver holds a line, high means
+   * it is fighting the car. It is the number behind "smooth is fast".
+   */
+  steeringWork: number;
 }
 
 /**
@@ -131,14 +155,43 @@ export interface RunResult {
  * time SATURATED and LOCKED, not using the tires.
  */
 const FITNESS_WEIGHTS = {
-  /** Fitness per metre of progress. Sets the overall scale. */
-  perMetre: 1,
-  /** Penalty per metre for mean tire utilization above the threshold below. */
+  /**
+   * The objective is AVERAGE SPEED, not distance.
+   *
+   * Distance was the original backbone and it has a specific flaw: BRAKING COSTS DISTANCE. A
+   * driver that slows for a corner travels less far in the run than one that does not slow at all,
+   * so the objective actively discouraged the single most important skill in racing. Measured, the
+   * best driver used the brake for ZERO per cent of a two-minute run — it had learned to avoid the
+   * pedal entirely.
+   *
+   * Average speed is the same measurement the sport uses: distance over time. Every metre gained
+   * and every second saved count equally, which makes braking into a corner worth doing, because
+   * carrying more speed through it gains more than the braking loses.
+   */
+  perMetrePerSecond: 1,
+  /** Penalty per metre per second for mean tire utilization above the threshold below. */
   utilizationPenalty: 0.35,
-  /** Penalty per metre for time spent with the fronts locked. */
+  /** Penalty for time spent with the fronts locked. */
   lockPenalty: 0.6,
-  /** Penalty per metre for time spent spinning the driven wheels. */
+  /** Penalty for time spent spinning the driven wheels. */
   wheelspinPenalty: 0.25,
+  /**
+   * Penalty for working the steering against itself.
+   *
+   * SMOOTH IS FAST, and not only as a style preference: every reversed steering input scrubs speed
+   * off the front tires, upsets the platform and makes the car unpredictable to anyone alongside it.
+   * A twitching driver is also impossible to race wheel to wheel, which is the entire point of the
+   * project.
+   *
+   * MEASURED BEFORE THIS EXISTED: the evolved driver reversed its steering direction 2,548 times in
+   * sixty seconds — forty-two times a second, full lock to full lock. It was not driving, it was
+   * vibrating, and nothing in the objective minded. The actuator limit bounds how fast a control can
+   * move; this makes the search prefer not to move it at all without reason.
+   *
+   * Counted as the total steering travel divided by the distance covered, so it is a cost per metre
+   * rather than per second, and a driver is not penalised simply for being on a twisty circuit.
+   */
+  steeringWorkPenalty: 0.06,
   /** Utilization below this is free; above it costs. */
   utilizationFloor: 0.85,
   /**
@@ -170,7 +223,18 @@ export const runDriver = (
   track: Track,
   options: RunOptions = {},
   scratch?: { car: CarState; observation: Observation; controls: Controls },
-): RunResult => runPolicy((observation, controls) => drive(driver, observation, controls), track, options, scratch);
+): RunResult =>
+  runPolicy(
+    (observation, controls) => {
+      const applied = driveSmoothed(driver, observation, DT);
+      controls.throttle = applied.throttle;
+      controls.brake = applied.brake;
+      controls.steer = applied.steer;
+    },
+    track,
+    options,
+    scratch,
+  );
 
 /**
  * The same evaluation, driven by any control function rather than by a network.
@@ -226,6 +290,12 @@ export const runPolicy = (
   let lockedSteps = 0;
   let wheelspinSteps = 0;
   let laps = 0;
+  /*
+   * Steering work: the total distance the wheel travels, in units of full lock. Minimised by
+   * holding a line; made large by fighting the car. See `steeringWorkPenalty`.
+   */
+  let steeringWork = 0;
+  let previousSteer = 0;
 
   /*
    * The car's lock and wheelspin timers are CUMULATIVE, so they are differenced rather
@@ -265,6 +335,8 @@ export const runPolicy = (
     previousWheelspinTime = car.wheelspinTime;
     if (lockDelta > 0) lockedSteps++;
     if (spinDelta > 0) wheelspinSteps++;
+    steeringWork += Math.abs(car.steerAngle - previousSteer) / MAX_STEER_ANGLE;
+    previousSteer = car.steerAngle;
 
     controls.throttle = 0;
     controls.brake = 0;
@@ -304,11 +376,15 @@ export const runPolicy = (
    * objective needs: drive the circuit first, then drive it quickly.
    */
   const gate = onTrackFraction < w.onTrackFloor ? 0.05 : 0.5 + onTrackFraction;
+  const averageSpeed = seconds > 0 ? distance / seconds : 0;
+  // Steering work per metre covered, so a longer run does not pay more for the same habit.
+  const steeringWorkPerMetre = distance > 1 ? (steeringWork / distance) * 100 : 0;
   const fitness =
-    distance * w.perMetre * gate -
-    distance * overLimit * w.utilizationPenalty -
-    distance * lockedFraction * w.lockPenalty -
-    distance * wheelspinFraction * w.wheelspinPenalty;
+    averageSpeed * w.perMetrePerSecond * gate -
+    averageSpeed * overLimit * w.utilizationPenalty -
+    averageSpeed * lockedFraction * w.lockPenalty -
+    averageSpeed * wheelspinFraction * w.wheelspinPenalty -
+    steeringWorkPerMetre * w.steeringWorkPenalty;
 
   return {
     distance,
@@ -318,6 +394,8 @@ export const runPolicy = (
     wheelspinFraction,
     laps,
     fitness,
+    averageSpeed,
+    steeringWork: steeringWorkPerMetre,
   };
 };
 

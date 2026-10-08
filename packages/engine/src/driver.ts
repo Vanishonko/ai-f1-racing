@@ -82,7 +82,57 @@ export interface Driver {
   /** Scratch buffers, so a step allocates nothing. */
   hidden: Float64Array;
   outputs: Float64Array;
+  /** Where `drive` writes the driver's intent, before the actuator limit. */
+  intent: Controls;
+  /** What the car actually receives, after the actuator limit. */
+  applied: Controls;
 }
+
+/**
+ * How fast a control can physically move, as a fraction of full travel per second.
+ *
+ * MEASURED AGAINST WHAT THE NETWORK WAS DOING. Left raw, the controls are a twitching mess: at
+ * 60 Hz the commanded steering changed by an average of 0.83 per tick with a largest single
+ * change of 2.0 — the full range, both directions — and it reversed direction 2,548 times in sixty
+ * seconds. The throttle slammed between zero and one while the brake was never touched at all.
+ *
+ * That is not driving, it is noise, and it is self-inflicted: a network with no memory and no
+ * smoothing reacts to each observation as though it were the first, so any jitter in the
+ * observation becomes jitter in the controls, amplified. Real hands and feet cannot move that
+ * fast, and a real car would simply be upset by it.
+ *
+ * These rates are what a person can actually do: a little over a full sweep of the wheel per
+ * second, and a pedal to the floor in about a fifth of a second.
+ */
+const STEER_RATE_LIMIT = 1.6;
+const PEDAL_RATE_LIMIT = 6.0;
+
+/**
+ * Moves an applied control towards its commanded value at a bounded rate.
+ *
+ * A rate limit rather than a low-pass filter, because that is what the physical limit actually is:
+ * a hand can move at most so fast, and it can hold any position. A filter would smooth the noise
+ * but also lag genuinely quick corrections, which is the wrong trade for a racing driver.
+ */
+const approach = (current: number, target: number, maxDelta: number): number => {
+  const delta = target - current;
+  if (delta > maxDelta) return current + maxDelta;
+  if (delta < -maxDelta) return current - maxDelta;
+  return target;
+};
+
+/**
+ * Rate-limits the controls to what a driver could physically ask for.
+ *
+ * @param dt timestep [s]
+ */
+export const smoothControls = (driver: Driver, dt: number): void => {
+  const applied = driver.applied;
+  const intent = driver.intent;
+  applied.steer = approach(applied.steer, intent.steer, STEER_RATE_LIMIT * dt);
+  applied.throttle = approach(applied.throttle, intent.throttle, PEDAL_RATE_LIMIT * dt);
+  applied.brake = approach(applied.brake, intent.brake, PEDAL_RATE_LIMIT * dt);
+};
 
 export const createDriver = (genes?: Float64Array, random?: () => number): Driver => {
   if (!genes && !random) {
@@ -95,6 +145,8 @@ export const createDriver = (genes?: Float64Array, random?: () => number): Drive
     genes: genes ?? randomGenes(random!),
     hidden: new Float64Array(HIDDEN_SIZE),
     outputs: new Float64Array(OUTPUT_SIZE),
+    intent: { throttle: 0, brake: 0, steer: 0 },
+    applied: { throttle: 0, brake: 0, steer: 0 },
   };
 };
 
@@ -195,4 +247,20 @@ export const drive = (driver: Driver, observation: Observation, out: Controls): 
   out.throttle = throttle;
   out.brake = brake * (1 - throttle);
   out.steer = clampUnit(outputs[2]!);
+};
+
+/**
+ * Runs the network and writes the controls the car should actually receive.
+ *
+ * `drive` produces the driver's INTENT; this applies the physical rate limit on top, so the car
+ * sees what a person could have asked for rather than what the network happened to output this
+ * tick. Everything that drives a car should go through this rather than through `drive`.
+ */
+export const driveSmoothed = (driver: Driver, observation: Observation, dt: number): Controls => {
+  // `drive` writes the INTENT; `smoothControls` moves the APPLIED values towards it. They must be
+  // separate objects — an earlier version passed `applied` to both, so the raw network output was
+  // written straight into the value being smoothed and the limit did nothing.
+  drive(driver, observation, driver.intent);
+  smoothControls(driver, dt);
+  return driver.applied;
 };

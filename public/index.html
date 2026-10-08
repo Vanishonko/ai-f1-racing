@@ -58,6 +58,9 @@
   table.sectors td { text-align: right; padding: 2px 0; font-variant-numeric: tabular-nums; }
   table.sectors td:first-child { text-align: left; opacity: 0.75; }
   td.purple { color: #b57bff; font-weight: 600; }
+  #fitness-spark { width: 100%; height: 44px; display: block; margin: 4px 0; background: #14161a; border-radius: 3px; }
+  /* A health warning has to be loud: it is the difference between watching a run and leaving one. */
+  .warn { color: #ffb340; font-size: 11px; line-height: 1.35; min-height: 0; margin-top: 2px; }
   td.personal { color: #4ade80; font-weight: 600; }
 </style>
 </head>
@@ -87,6 +90,14 @@
       <div class="row"><span>front lock</span><span id="lock">0.00 s</span></div>
       <div class="row"><span>wheelspin</span><span id="spin">0.00 s</span></div>
       <div class="row"><span>tire wear</span><span id="wear">0%</span></div>
+
+      <h2>Training</h2>
+      <div class="row"><span id="train-state">no run in progress</span></div>
+      <div class="row"><span>generation</span><span id="train-gen">--</span></div>
+      <div class="row"><span>best pace</span><span id="train-best">--</span></div>
+      <div class="row"><span>population</span><span id="train-mean">--</span></div>
+      <canvas id="fitness-spark" width="240" height="44"></canvas>
+      <div class="warn" id="train-warn"></div>
 
       <h2>Driver</h2>
       <label><input type="checkbox" id="ai-drive"> trained driver (wasd hand over)</label>

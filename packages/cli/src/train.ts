@@ -16,7 +16,14 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { CIRCUITS, buildCircuitByKey } from "../../engine/src/trackLibrary.ts";
-import { createTrainer, trainGeneration, bestDriver } from "../../engine/src/evolve.ts";
+import {
+  createTrainer,
+  trainGeneration,
+  bestDriver,
+  assessRun,
+  type GenerationReport,
+  type TrainerState,
+} from "../../engine/src/evolve.ts";
 import { runDriver, DEFAULT_RUN_SECONDS } from "../../engine/src/environment.ts";
 import { PARAMETER_COUNT } from "../../engine/src/driver.ts";
 import type { Track } from "../../engine/src/track.ts";
@@ -192,6 +199,54 @@ const readCheckpoint = (path: string, options: Options): Resumed | string => {
   };
 };
 
+/**
+ * Writes a status file the viewer can poll, so a training run is watchable as it happens.
+ *
+ * WITHOUT THIS A LONG RUN IS INVISIBLE. A thirteen-hour run once improved for six generations and
+ * then achieved nothing for five thousand more, and the only trace was a column of numbers in a log
+ * file nobody was watching. The failure was not that the information did not exist, it is that
+ * nothing put it where it could be seen.
+ *
+ * The file carries the elite's parameters as well as the numbers, so the viewer can DRIVE the
+ * current best driver while the search continues. Watching the car is the fastest way to notice
+ * that something is wrong: a driver fighting its own steering or refusing to brake is obvious on
+ * screen and invisible in a fitness number.
+ */
+const writeStatus = (
+  path: string,
+  options: Options,
+  state: TrainerState,
+  report: GenerationReport,
+  warning: string,
+  secondsPerGeneration: number,
+  elapsed: number,
+): void => {
+  writeFileSync(
+    path,
+    JSON.stringify({
+      version: 1,
+      circuit: options.circuit,
+      seconds: options.seconds,
+      seed: options.seed,
+      budgetHours: options.hours,
+      generation: report.generation,
+      elapsed,
+      secondsPerGeneration,
+      bestGeneration: state.bestGeneration,
+      bestFitness: state.bestFitness,
+      currentFitness: report.currentFitness,
+      bestSampleFitness: report.bestSampleFitness,
+      meanFitness: report.meanFitness,
+      meanDistance: report.meanDistance,
+      meanOnTrack: report.meanOnTrack,
+      warning,
+      // The elite, so the viewer can drive it.
+      parameterCount: PARAMETER_COUNT,
+      genes: Array.from(state.best),
+    }),
+  );
+};
+
 const formatClock = (seconds: number): string => {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -218,6 +273,7 @@ const main = (): void => {
   }
 
   const checkpointPath = resolve(options.checkpoint);
+  const statusPath = resolve(dirname(options.checkpoint), `${options.circuit}.status.json`);
 
   /*
    * Resume by default when a checkpoint exists.
@@ -268,6 +324,8 @@ const main = (): void => {
   let best = -Infinity;
   let generations = 0;
   let interrupted = false;
+  /** The last health warning printed, so the same one is not repeated every generation. */
+  let lastWarning = "";
 
   /*
    * A long run has to survive being stopped. Ctrl-C saves before exiting, so an overnight run
@@ -279,7 +337,7 @@ const main = (): void => {
   process.on("SIGINT", onInterrupt);
   process.on("SIGTERM", onInterrupt);
 
-  say("gen      best-ever    mean dist   on track    elapsed");
+  say("gen      best (m/s)   mean dist   on track    elapsed");
   while (Date.now() < deadline && !interrupted) {
     const report = trainGeneration(state, track, { seconds: options.seconds });
     generations++;
@@ -288,14 +346,50 @@ const main = (): void => {
       best = report.bestEverFitness;
       saveCheckpoint(checkpointPath, options, state.bestGeneration, best, state.best);
       if (options.quiet) {
-        say(`  new best ${best.toFixed(0)} at generation ${state.bestGeneration}, saved`);
+        say(`  new best ${best.toFixed(1)} m/s at generation ${state.bestGeneration}, saved`);
       }
+    }
+
+    /*
+     * Say so when the run stops being useful.
+     *
+     * A thirteen-hour run once improved for six generations and then achieved nothing for 5,300
+     * more, and the log did not mention it — the best-ever column simply never changed. Reporting
+     * the symptom in words is the difference between a run that is watched and one that is merely
+     * left running.
+     */
+    const health = assessRun(state, report);
+
+    /*
+     * Publish after every generation rather than only on an improvement, so the viewer shows the
+     * search as it moves and not just the moments it succeeded.
+     */
+    const elapsedSeconds = (Date.now() - started) / 1000;
+    try {
+      writeStatus(
+        statusPath,
+        options,
+        state,
+        report,
+        health.warning,
+        elapsedSeconds / Math.max(1, generations),
+        elapsedSeconds,
+      );
+    } catch {
+      // A status file is a convenience; failing to write one must not stop a long run.
+    }
+
+    if (health.warning && health.warning !== lastWarning) {
+      lastWarning = health.warning;
+      say(`  WARNING after generation ${report.generation}: ${health.warning}`);
+    } else if (!health.warning) {
+      lastWarning = "";
     }
 
     if (!options.quiet && report.generation % options.reportEvery === 0) {
       const elapsed = (Date.now() - started) / 1000;
       say(
-        `${String(report.generation).padStart(4)}  ${best.toFixed(0).padStart(11)}  ` +
+        `${String(report.generation).padStart(4)}  ${best.toFixed(1).padStart(11)}  ` +
           `${report.meanDistance.toFixed(0).padStart(11)}  ` +
           `${(report.meanOnTrack * 100).toFixed(0).padStart(8)}%  ` +
           `${formatClock(elapsed).padStart(12)}`,
@@ -316,8 +410,11 @@ const main = (): void => {
   );
   say(
     `best driver over ${finalSeconds} s: ${finalResult.distance.toFixed(0)} m, ` +
-      `${finalResult.laps} laps, on track ${(finalResult.onTrackFraction * 100).toFixed(0)}%, ` +
-      `mean tire use ${finalResult.meanUtilization.toFixed(2)}`,
+      `${finalResult.laps} laps, ${finalResult.averageSpeed.toFixed(1)} m/s average ` +
+      `(${(finalResult.averageSpeed * 3.6).toFixed(0)} km/h), ` +
+      `on track ${(finalResult.onTrackFraction * 100).toFixed(0)}%, ` +
+      `braking ${(finalResult.lockedFraction * 100).toFixed(0)}% locked, ` +
+      `spinning ${(finalResult.wheelspinFraction * 100).toFixed(0)}%`,
   );
   /*
    * Always write a final checkpoint. If nothing ever improved, that is itself worth saving —

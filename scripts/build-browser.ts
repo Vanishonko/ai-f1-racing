@@ -116,8 +116,10 @@ try {
   await mkdir(CHECKPOINT_OUT, { recursive: true });
   for (const entry of await readdir(CHECKPOINTS, { withFileTypes: true })) {
     if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-    await cp(join(CHECKPOINTS, entry.name), join(CHECKPOINT_OUT, entry.name));
-    published++;
+    // Status files are published too, so the viewer can show a run in progress.
+    const destination = join(CHECKPOINT_OUT, entry.name);
+    await cp(join(CHECKPOINTS, entry.name), destination);
+    if (!entry.name.endsWith(".status.json")) published++;
   }
 } catch {
   // No checkpoints yet. The viewer reports that per circuit rather than failing.

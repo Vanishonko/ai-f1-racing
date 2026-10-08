@@ -342,6 +342,31 @@ export const trainGeneration = (
     state.bestGeneration = step;
   }
 
+  /*
+   * RESTART FROM THE ELITE WHEN THE SEARCH HAS LOST ITS WAY.
+   *
+   * Diagnosed from a training curve, and it was the whole reason a thirteen-hour run produced
+   * nothing. The centre's fitness peaked at generation six and then DECAYED — 1047, then 562, then
+   * 8 — while the elite stayed put because elitism keeps a copy. The search had walked into a bad
+   * region with no way back: a rank-normalised update is equally content to march deeper into a
+   * basin as out of it.
+   *
+   * The measurement that proved it: taking the stuck centre and applying forty ordinary
+   * perturbations, THIRTEEN of them scored better. Better parameters were all around it and its own
+   * updates could not find them.
+   *
+   * So when the centre has fallen behind the elite, it is SNAPPED ONTO THE ELITE and the next
+   * generation explores from there. A first attempt at this pulled the centre halfway back every
+   * generation instead, which is a different thing entirely and much worse: a continuous pull
+   * drags every sample towards one point, so the population loses its variation and the ranking
+   * stops carrying information. Measured with the pull, the centre's fitness went to zero within
+   * four generations and never recovered. A reset happens once and leaves the next generation free
+   * to spread out again.
+   */
+  if (current.fitness < state.bestFitness) {
+    state.mean.set(state.best);
+  }
+
   const total = samples * 2;
   return {
     generation: step,
@@ -360,6 +385,75 @@ export const trainGeneration = (
  * driver module as well.
  */
 export const PARAMETER_COUNT_CHECK = PARAMETER_COUNT;
+
+/**
+ * How healthy a run looks, judged from its own history.
+ *
+ * BUILT BECAUSE A THIRTEEN-HOUR RUN WAS WASTED. It resumed at generation 294 and reached its
+ * best-ever score by generation 300, then produced NO improvement for 5,300 further generations —
+ * twelve hours fifty of computation that achieved nothing, and nothing in the output said so. The
+ * information was all there: the best-ever column was identical in every line. Nobody was reading
+ * it, which is the same as not measuring it.
+ *
+ * Three failure modes are detectable from the numbers a generation already reports:
+ *
+ *  - PLATEAU: the best-ever score has not moved for a long time. Either the search is finished or
+ *    it is stuck, and either way the run should be told rather than left to burn hours.
+ *  - COLLAPSE: the population's centre is far worse than the best ever found. This is the specific
+ *    failure that wasted the long run — the centre decayed from 1047 to 8 while elitism kept the
+ *    elite, so the search was exploring a region it had already left behind.
+ *  - STAGNATION: the whole population is clustered at one score, so the ranking carries no
+ *    information and the update has nothing to follow.
+ */
+export interface RunHealth {
+  /** Generations since the best-ever score last improved. */
+  generationsSinceImprovement: number;
+  /** True when the centre has fallen far behind the best ever recorded. */
+  collapsed: boolean;
+  /** True when the population's scores are so similar that ranking says nothing. */
+  stagnant: boolean;
+  /** True when nothing has improved for long enough that the run is unlikely to recover. */
+  plateaued: boolean;
+  /** A one-line summary, empty when the run looks healthy. */
+  warning: string;
+}
+
+/** Generations without improvement before a run is called plateaued. */
+const PLATEAU_GENERATIONS = 150;
+/** How far below the elite the centre may fall before the search is called collapsed. */
+const COLLAPSE_FRACTION = 0.5;
+
+export const assessRun = (state: TrainerState, report: GenerationReport): RunHealth => {
+  const sinceImprovement = report.generation - state.bestGeneration;
+  /*
+   * The centre is compared against the elite's score. A modest gap is normal and healthy — the
+   * elite is the best of many samples, so it sits above the average by construction. A large gap
+   * means the search centre has wandered somewhere much worse, which is the collapse above.
+   */
+  /*
+   * Guarded against a tiny or negative best, which the ratio would turn into a false alarm. Early
+   * generations legitimately have a best near zero while the centre has not found its feet yet.
+   */
+  const collapsed =
+    state.bestFitness > 1 && report.currentFitness < state.bestFitness * COLLAPSE_FRACTION;
+  const stagnant = report.bestSampleFitness - report.meanFitness < 1e-9 && report.meanFitness > 0;
+  const plateaued = sinceImprovement >= PLATEAU_GENERATIONS;
+
+  let warning = "";
+  if (collapsed) {
+    warning =
+      `the search centre (${report.currentFitness.toFixed(0)}) has fallen far below its best ` +
+      `(${state.bestFitness.toFixed(0)}); it has wandered into a worse region`;
+  } else if (stagnant) {
+    warning =
+      `every sample scores the same (${report.meanFitness.toFixed(0)}), so ranking carries no ` +
+      `information and the update has nothing to follow`;
+  } else if (plateaued) {
+    warning =
+      `no improvement for ${sinceImprovement} generations; the search is either finished or stuck`;
+  }
+  return { generationsSinceImprovement: sinceImprovement, collapsed, stagnant, plateaued, warning };
+};
 
 /** A driver built from the best parameters found so far. */
 export const bestDriver = (state: TrainerState): Driver =>
