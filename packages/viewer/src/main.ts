@@ -1285,10 +1285,24 @@ const updatePanel = (): void => {
 const resize = (): void => {
   const rect = canvas.parentElement!.getBoundingClientRect();
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  canvas.width = Math.round(rect.width * dpr);
-  canvas.height = Math.round(rect.height * dpr);
+  const width = Math.max(1, Math.round(rect.width * dpr));
+  const height = Math.max(1, Math.round(rect.height * dpr));
+  if (canvas.width === width && canvas.height === height) return;
+  canvas.width = width;
+  canvas.height = height;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
 };
+
+/*
+ * The backing size is checked every frame rather than only on a window resize event.
+ *
+ * A resize event fires when the WINDOW changes, not when the canvas's own box does, so hiding the
+ * panel changed the stage from 980 pixels to 1280 without firing anything — and the canvas stretched
+ * a stale buffer, which is exactly "it does not fill the browser" while the element technically did.
+ * Asking once per frame is a cheap geometry read that cannot miss a layout change, whatever caused
+ * it.
+ */
+const keepCanvasSized = (): void => resize();
 window.addEventListener("resize", resize);
 resize();
 
@@ -1309,17 +1323,43 @@ const setupSplitter = (): void => {
 
   const PANEL_MIN = 200;
   const STAGE_MIN = 240;
+  /**
+   * The panel never takes more than this, whatever it is dragged to.
+   *
+   * A dragged width is REMEMBERED, which is right for a preference but means a bad value persists
+   * across reloads and looks like a broken layout. That happened: a test drag saved 580px into
+   * localStorage, so the canvas was squeezed to 695px of a 1280px window on every subsequent load
+   * and looked like it did not fill the browser at all.
+   */
+  const PANEL_MAX = 420;
   const STORAGE_KEY = "panel-width";
+  const HIDDEN_KEY = "panel-hidden";
 
   const apply = (width: number): void => {
-    const capped = Math.max(PANEL_MIN, Math.min(width, window.innerWidth - STAGE_MIN));
-    document.body.style.gridTemplateColumns = `1fr 5px ${capped}px`;
-    // The canvas backing size follows the stage, so it must be re-measured after the layout changes.
-    resize();
+    const capped = Math.max(PANEL_MIN, Math.min(width, PANEL_MAX, window.innerWidth - STAGE_MIN));
+    /*
+     * A custom property, not `grid-template-columns` directly: an inline grid leaves the class-based
+     * hidden state unable to override it, which left a dead column beside the canvas.
+     */
+    document.body.style.setProperty("--panel-width", `${capped}px`);
+    setTimeout(resize, 0);
   };
 
   const stored = Number(localStorage.getItem(STORAGE_KEY));
-  if (Number.isFinite(stored) && stored >= PANEL_MIN) apply(stored);
+  if (Number.isFinite(stored) && stored >= PANEL_MIN) {
+    // Re-saved under the cap, so an over-wide value from before the cap existed is corrected rather
+    // than merely clamped on every load.
+    apply(stored);
+    localStorage.setItem(STORAGE_KEY, String(Math.min(stored, PANEL_MAX)));
+  }
+
+  /*
+   * THE CANVAS IS THE POINT, so the panel starts hidden and the whole window is the track. It is one
+   * key away when the telemetry is wanted, and which of those you want is a preference worth
+   * remembering.
+   */
+  if (localStorage.getItem(HIDDEN_KEY) !== "false") document.body.classList.add("panel-hidden");
+  setTimeout(resize, 0);
 
   let dragging = false;
   splitter.addEventListener("pointerdown", (event) => {
@@ -1343,18 +1383,27 @@ const setupSplitter = (): void => {
    * Double-clicking the divider hides the panel entirely, giving the whole window to the canvas.
    * The state is a class on the body rather than inline styles so it cannot fight the drag width.
    */
-  splitter.addEventListener("dblclick", () => {
-    document.body.classList.toggle("panel-hidden");
-    requestAnimationFrame(resize);
-  });
+  const togglePanel = (): void => {
+    const hidden = document.body.classList.toggle("panel-hidden");
+    localStorage.setItem(HIDDEN_KEY, String(hidden));
+    /*
+     * Re-measured on a TIMER rather than on an animation frame.
+     *
+     * `requestAnimationFrame` callbacks run BEFORE layout for the frame, so reading the canvas's box
+     * there returns the size it had before the class changed — measured, the canvas stayed at 980
+     * pixels wide with the panel hidden and the whole window free. A zero-delay timer runs after the
+     * browser has laid out, which is the earliest moment the new size exists.
+     */
+    setTimeout(resize, 0);
+  };
+  splitter.addEventListener("dblclick", togglePanel);
 
   // `H` toggles the panel too, for the same reason a video player has one key for fullscreen.
   window.addEventListener("keydown", (event) => {
-    if (event.key === "h" || event.key === "H") {
-      document.body.classList.toggle("panel-hidden");
-      requestAnimationFrame(resize);
-    }
+    if (event.key === "h" || event.key === "H") togglePanel();
   });
+  const button = document.getElementById("panel-toggle");
+  if (button) button.addEventListener("click", togglePanel);
 };
 
 setupSplitter();
@@ -1550,6 +1599,7 @@ const frame = (now: number): void => {
   trail.push({ x: car.x, y: car.y });
   if (trail.length > TRAIL_LENGTH) trail.shift();
 
+  keepCanvasSized();
   updateDriverPanel();
   updateTrainingPanel();
   updateTimingPanel();

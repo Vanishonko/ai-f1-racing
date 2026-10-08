@@ -32,10 +32,30 @@
     cursor: col-resize; background: var(--line); user-select: none;
   }
   #splitter:hover, #splitter.dragging { background: #b57bff; }
+  /*
+   * A way back to the panel that is visible without knowing the key. A hidden panel with no visible
+   * affordance is a layout that looks broken to anyone who did not write it.
+   */
+  #panel-toggle {
+    position: fixed; top: 12px; right: 12px; z-index: 10; width: auto; margin: 0;
+    padding: 6px 12px; opacity: .85;
+  }
+  #panel-toggle:hover { opacity: 1; }
+  body:not(.panel-hidden) #panel-toggle { display: none; }
   /* Collapsed: the stage takes the entire window. */
-  body.panel-hidden { grid-template-columns: 1fr 0 0 !important; }
+  /*
+   * The grid is driven entirely by CSS classes, never by an inline style.
+   *
+   * An inline `grid-template-columns` beats a class selector whatever the class says, so the hidden
+   * state silently did nothing: the panel was display:none but its column still existed, which left a
+   * wide empty strip beside the canvas and pushed the panel off the bottom. The width travels in a
+   * custom property instead, which a class CAN override.
+   */
+  body { --panel-width: 300px; }
+  body { grid-template-columns: 1fr 5px var(--panel-width); }
+  body.panel-hidden { grid-template-columns: 1fr 0 0; }
   body.panel-hidden aside { display: none; }
-  body.panel-hidden #splitter { background: var(--line); }
+  body.panel-hidden #splitter { display: none; }
   aside {
     background: var(--panel); border-left: 1px solid var(--line);
     padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px;
@@ -74,6 +94,7 @@
   #fitness-spark { width: 100%; height: 44px; display: block; margin: 4px 0; background: #14161a; border-radius: 3px; }
   /* A health warning has to be loud: it is the difference between watching a run and leaving one. */
   .warn { color: #ffb340; font-size: 11px; line-height: 1.35; min-height: 0; margin-top: 2px; }
+  #panel-toggle { width: auto; }
   button {
     width: 100%; margin: 4px 0 2px; padding: 5px 8px; cursor: pointer;
     background: #23262d; color: #e8e8ea; border: 1px solid #3a3f48; border-radius: 3px;
@@ -87,6 +108,8 @@
   <div id="stage"><canvas id="view"></canvas></div>
   <!-- Dragged to resize the panel; see the resize wiring at the end of the body. -->
   <div id="splitter" title="drag to resize the panel, double-click to collapse"></div>
+  <!-- Visible only while the panel is hidden, so there is always a way back and to the live run. -->
+  <button id="panel-toggle" type="button" title="show the panel (H)">panel</button>
   <aside>
     <h1>Circuit</h1>
     <select id="trackSelect"></select>
