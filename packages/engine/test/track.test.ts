@@ -10,11 +10,11 @@ import {
   validateTrack,
   type TrackControlPoints,
 } from "../src/track.ts";
-import { buildHandTracks, HAND_TRACKS } from "../src/trackLibrary.ts";
+import { buildCircuits, CIRCUITS } from "../src/trackLibrary.ts";
 
 test("track: every hand-authored layout builds and is drivable", () => {
-  const tracks = buildHandTracks();
-  assert.equal(tracks.length, HAND_TRACKS.length, "every named track should build");
+  const tracks = buildCircuits();
+  assert.equal(tracks.length, CIRCUITS.length, "every named track should build");
 
   for (const track of tracks) {
     assert.ok(track.length > 500, `${track.name}: only ${track.length.toFixed(0)} m long`);
@@ -49,7 +49,7 @@ test("track: no layout overlaps itself or crosses its own centreline", () => {
    * The first is a clearance question and the second is a topology question, so
    * they need separate measures. Both are cheap to check and neither was.
    */
-  for (const track of buildHandTracks()) {
+  for (const track of buildCircuits()) {
     // Topology: the centreline must not cross itself, or `(s, d)` is ambiguous and
     // progress, lap counting and grid placement all break quietly.
     const crossings = selfIntersections(track);
@@ -118,7 +118,7 @@ test("track: every layout has somewhere to overtake", () => {
    */
   const EXEMPT_FROM_TWO = new Set(["The Oval", "Club Circuit"]);
 
-  for (const track of buildHandTracks()) {
+  for (const track of buildCircuits()) {
     if (track.name === "The Oval") continue;
 
     /*
@@ -219,7 +219,7 @@ test("track: the arc-length array agrees with the geometry", () => {
    * The check is direct: the difference between consecutive entries must equal the
    * distance between the corresponding points.
    */
-  for (const track of buildHandTracks()) {
+  for (const track of buildCircuits()) {
     let worst = 0;
     for (let i = 1; i < track.xs.length; i++) {
       const dx = track.xs[i]! - track.xs[i - 1]!;
@@ -241,7 +241,7 @@ test("track: distance lookup lands where the geometry says it should", () => {
    * Checked by walking the whole lap in small steps and requiring each point to be
    * where that distance actually is.
    */
-  for (const track of buildHandTracks()) {
+  for (const track of buildCircuits()) {
     let worst = 0;
     const stride = track.length / 500;
     for (let distance = 0; distance < track.length; distance += stride) {
@@ -272,7 +272,7 @@ test("track: lateral offset is signed consistently and track limits work", () =>
   // The sign convention matters: a positive offset must be to the LEFT of the
   // direction of travel, so it agrees with the car's own body frame and the
   // drivers' observations are not mirrored.
-  const track = buildHandTracks().find((t) => t.name === "Club Circuit")!;
+  const track = buildCircuits().find((t) => t.name === "Club Circuit")!;
   const probe = pointAtDistance(track, 500);
 
   const leftX = probe.x + -probe.ty * (track.halfWidth * 0.5);
@@ -290,4 +290,63 @@ test("track: lateral offset is signed consistently and track limits work", () =>
   // Well off the track must report as off, or track limits never fire.
   const wayOff = projectToTrack(track, probe.x + -probe.ty * (track.halfWidth * 3), probe.y + probe.tx * (track.halfWidth * 3));
   assert.equal(wayOff.onTrack, false, "three half-widths out must be off track");
+});
+
+test("track: continuous projection follows the lap without losing its place", () => {
+  /*
+   * `projectToTrackNear` is what the viewer uses to accumulate lap distance, so a lap
+   * time depends on it. It searches near a previous position rather than globally,
+   * because a global nearest-sample search is ambiguous wherever a circuit folds back
+   * near itself — on Spa the globally nearest sample to a mid-straight point was 157 m
+   * away along the track, which would put a car in the wrong place.
+   *
+   * WHAT THIS ASSERTS, and why it is not a tighter bound. The function walks outward
+   * from the previous position and takes the nearest sample within `windowM`, so it is
+   * exact when the car moves less than the window per tick and can only lose its place
+   * if it does not. The test therefore steps the lap in increments well inside the
+   * window and requires the reported position to advance by the same amount, which is
+   * the property lap timing actually needs. A tolerance of one sample spacing is the
+   * method's floor: it refines within the chord between two samples.
+   */
+  for (const track of buildCircuits()) {
+    const stride = 12;                    // metres per step, well inside the window
+    const window = 60;
+    let worst = 0;
+    let lost = 0;
+
+    /*
+     * Start from the projection of the lap's own start rather than from zero. Assuming
+     * `previous = 0` made the first step ask the projection to advance 12 m from a
+     * standing start, which it correctly refuses to do and which reported a false
+     * failure; a car begins where it is placed, then moves.
+     */
+    const startPoint = pointAtDistance(track, 0);
+    let previous = projectToTrackNear(track, startPoint.x, startPoint.y, 0, window).s;
+
+    for (let expected = stride; expected < track.length; expected += stride) {
+      const point = pointAtDistance(track, expected);
+      const projected = projectToTrackNear(track, point.x, point.y, previous, window);
+
+      /*
+       * The advance is what must be consistent, not the absolute distance. A splice
+       * between two samples can sit either side of a sample boundary, so the absolute
+       * value legitimately differs from `expected` by up to one spacing; what would be
+       * a real fault is the advance disagreeing with the distance actually travelled.
+       */
+      let advance = projected.s - previous;
+      if (advance < -track.length / 2) advance += track.length;
+      else if (advance > track.length / 2) advance -= track.length;
+      worst = Math.max(worst, Math.abs(advance - stride));
+      if (Math.abs(advance - stride) > 5) lost++;
+
+      previous = projected.s;
+    }
+
+    assert.equal(lost, 0, `${track.name}: projection lost its place on ${lost} steps`);
+    assert.ok(
+      worst < 5,
+      `${track.name}: the reported advance differed from the distance travelled by ` +
+        `${worst.toFixed(2)} m, which would corrupt every lap time`,
+    );
+  }
 });

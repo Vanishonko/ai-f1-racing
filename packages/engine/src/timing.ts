@@ -159,10 +159,6 @@ const completeSector = (state: TimingState, sector: number, boundaryElapsed: num
   }
 };
 
-/** Sector index the car is currently in, for display. */
-export const currentSector = (state: TimingState): number =>
-  Math.min(state.sectorsDone, state.boundaries.length - 1);
-
 /** Formats a time as m:ss.mmm, or a dash when there is no time yet. */
 export const formatTime = (seconds: number | null): string => {
   if (seconds === null || !Number.isFinite(seconds)) return "--:--.---";

@@ -78,7 +78,7 @@ export const DEFAULT_ENGINE: EngineSpec = {
  *
  * Anchors: idle, peak, redline.
  */
-export const torqueFraction = (rpm: number, spec: EngineSpec): number => {
+const torqueFraction = (rpm: number, spec: EngineSpec): number => {
   const r = clamp(rpm, 0, spec.redlineRpm);
   if (r <= 0) return 0;
 

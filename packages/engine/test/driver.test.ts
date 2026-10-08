@@ -1,0 +1,150 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  createDriver,
+  drive,
+  randomGenes,
+  PARAMETER_COUNT,
+  HIDDEN_SIZE,
+  OUTPUT_SIZE,
+  type Controls,
+} from "../src/driver.ts";
+import { createObservation } from "../src/sense.ts";
+import { tanh, saturateUnit } from "../src/activation.ts";
+import { createRng } from "../src/rng.ts";
+
+/**
+ * A seeded uniform source for the initialiser.
+ *
+ * `randomGenes` requires a source rather than defaulting to `Math.random`, so that a run
+ * is reproducible; this is the adapter from the engine's PRNG to the plain function it
+ * asks for.
+ */
+const seeded = (seed: number): (() => number) => {
+  const rng = createRng(seed);
+  return () => rng.nextFloat();
+};
+
+const controls = (): Controls => ({ throttle: 0, brake: 0, steer: 0 });
+
+test("driver: the parameter count matches the declared topology", () => {
+  assert.equal(
+    PARAMETER_COUNT,
+    HIDDEN_SIZE * createObservation().values.length + HIDDEN_SIZE + OUTPUT_SIZE * HIDDEN_SIZE + OUTPUT_SIZE,
+    "the flat parameter layout must match the layers it describes",
+  );
+  const driver = createDriver(undefined, seeded(1));
+  assert.equal(driver.genes.length, PARAMETER_COUNT);
+});
+
+test("driver: the same genes always produce the same controls", () => {
+  /*
+   * The whole basis for saying whether a change helped is that a driver is a pure
+   * function of its genes and its inputs. An unseeded initialisation or a stray
+   * non-deterministic call would make every measurement meaningless.
+   */
+  const genes = randomGenes(seeded(42));
+  const observation = createObservation();
+  for (let i = 0; i < observation.values.length; i++) observation.values[i] = Math.sin(i) * 0.5;
+
+  const a = controls();
+  const b = controls();
+  drive(createDriver(genes, seeded(1)), observation, a);
+  drive(createDriver(genes, seeded(2)), observation, b);
+
+  assert.deepEqual(a, b, "identical genes and inputs must give identical controls");
+});
+
+test("driver: the seeded initialisation is reproducible", () => {
+  const first = randomGenes(seeded(7));
+  const second = randomGenes(seeded(7));
+  const third = randomGenes(seeded(8));
+  assert.deepEqual(Array.from(first), Array.from(second), "the same seed must agree");
+  assert.notDeepEqual(Array.from(first), Array.from(third), "a different seed must differ");
+});
+
+test("driver: controls are always inside the ranges the car accepts", () => {
+  /*
+   * A driver must not be able to ask for negative throttle or a steering angle beyond
+   * full lock, however wild its parameter vector. The squashing is part of the network
+   * rather than the caller's responsibility, so a search over arbitrary real genes can
+   * never produce an invalid command.
+   */
+  const observation = createObservation();
+  const out = controls();
+  for (let seed = 1; seed <= 40; seed++) {
+    const genes = randomGenes(seeded(seed));
+    // Push the genes far outside any trained range to hunt for saturation failures.
+    for (let i = 0; i < genes.length; i++) genes[i] = genes[i]! * 5000;
+    for (let i = 0; i < observation.values.length; i++) observation.values[i] = (seed % 7) - 3;
+
+    drive(createDriver(genes, seeded(seed)), observation, out);
+    assert.ok(out.throttle >= 0 && out.throttle <= 1, `throttle ${out.throttle}`);
+    assert.ok(out.brake >= 0 && out.brake <= 1, `brake ${out.brake}`);
+    assert.ok(out.steer >= -1 && out.steer <= 1, `steer ${out.steer}`);
+    assert.ok(Number.isFinite(out.throttle + out.brake + out.steer), "controls must be finite");
+  }
+});
+
+test("driver: an untrained population does not all do the same thing", () => {
+  /*
+   * Initialisation that collapses every unit onto its asymptote would make the whole
+   * initial population behave identically, and a search with no variation has nothing to
+   * select on. This checks the fan-in scaling is doing its job.
+   */
+  const observation = createObservation();
+  for (let i = 0; i < observation.values.length; i++) observation.values[i] = 0.3;
+
+  const throttles: number[] = [];
+  const out = controls();
+  for (let seed = 1; seed <= 30; seed++) {
+    drive(createDriver(randomGenes(seeded(seed)), seeded(1)), observation, out);
+    throttles.push(out.throttle);
+  }
+  const spread = Math.max(...throttles) - Math.min(...throttles);
+  assert.ok(spread > 0.05, `the initial population's throttle demand varied by only ${spread.toFixed(4)}`);
+});
+
+test("activation: the baked tanh agrees with the real one where it matters", () => {
+  /*
+   * The table replaces a banned function, so it has to be accurate enough that the
+   * network behaves the same as one that used the real thing. Linear interpolation on
+   * 2048 points over [-4, 4] should be good to about 1e-5.
+   */
+  let worst = 0;
+  for (let i = -1000; i <= 1000; i++) {
+    const x = (i / 1000) * 6;
+    const expected = Math.tanh(x);
+    const actual = tanh(x);
+    worst = Math.max(worst, Math.abs(actual - expected));
+  }
+  assert.ok(worst < 1e-4, `the baked tanh differs from the real one by ${worst.toExponential(2)}`);
+
+  /*
+   * Exactness at zero is NOT asserted. Zero is a table node only when the step count is
+   * even and the range symmetric, which happens to hold, but that is a coincidence of the
+   * constants rather than a property worth depending on — and the accuracy check above
+   * already covers it. Asserting it would make a future change to the resolution fail for
+   * no good reason.
+   */
+  assert.ok(Math.abs(tanh(0)) < 1e-6, "tanh(0) must be zero to within the table's accuracy");
+
+  assert.ok(tanh(1e6) > 0.999, "large positive input approaches the asymptote");
+  assert.ok(tanh(-1e6) < -0.999, "large negative input approaches the negative asymptote");
+  assert.equal(tanh(1e6), tanh(6), "beyond the table the function is flat, not discontinuous");
+  assert.equal(tanh(-1e6), tanh(-6), "and flat on the negative side too");
+});
+
+test("activation: saturateUnit is monotonic, smooth and bounded", () => {
+  assert.equal(saturateUnit(0), 0.5, "zero demand sits at the midpoint");
+  let previous = -Infinity;
+  for (let i = -500; i <= 500; i++) {
+    const value = saturateUnit(i / 50);
+    assert.ok(value > previous, `saturateUnit must increase: ${value} after ${previous}`);
+    assert.ok(value >= 0 && value <= 1, `saturateUnit left [0, 1]: ${value}`);
+    previous = value;
+  }
+  // Never reaches the bounds, so a search always has a gradient to follow.
+  assert.ok(saturateUnit(1e6) < 1, "the upper bound is an asymptote, not a clamp");
+  assert.ok(saturateUnit(-1e6) > 0, "the lower bound is an asymptote, not a clamp");
+});

@@ -19,7 +19,7 @@
  * baked angle tables. No transcendental reaches the hot path.
  */
 
-import { DEFAULT_TIRE, tireForces, type TireParams } from "./tire.ts";
+import { DEFAULT_TIRE, tireForces, wheelNormalLoads, type TireParams } from "./tire.ts";
 import {
   DEFAULT_DIFF,
   DEFAULT_ENGINE,
@@ -57,13 +57,13 @@ export const WHEEL_COUNT = 4;
  * one implementation, and lets a future adaptive caller raise it without forking
  * the physics.
  */
-export const DEFAULT_WHEEL_SUBSTEPS = 16;
+const DEFAULT_WHEEL_SUBSTEPS = 16;
 
 /**
  * Below this road speed the slip-ratio denominator is clamped, so a stationary car
  * does not divide by zero. Genuine slip at walking pace is not interesting.
  */
-export const MIN_REFERENCE_SPEED = 1.0;
+const MIN_REFERENCE_SPEED = 1.0;
 
 /** Grip multiplier at maximum tire wear. Worn tires lose about a third. */
 const WORN_GRIP = 0.65;
@@ -98,24 +98,17 @@ const WEAR_RATE_SLIDING = 0.024;
  */
 const ROLLING_RESISTANCE = 0.014;
 
-/**
- * Speed below which the car is snapped to a complete stop [m/s].
+/*
+ * A `STOP_SPEED` threshold used to live here, snapping the car to a halt below
+ * 0.35 m/s to stop it creeping backwards in neutral. It is gone because the causes of
+ * that creep were found and fixed properly: the idle torque was reaching the road,
+ * engine braking could push a stationary car backwards, and the wheel-derived engine
+ * speed was clamped to idle so the clutch never knew the car had stopped. See
+ * `clutchEngagement` in powertrain.ts and the `rawRpmFor` note below.
  *
- * Below the slip-ratio reference speed, slip ratio loses physical meaning, so the
- * longitudinal force computed from it becomes noise and flips sign between ticks.
- * Left alone that makes a "stopped" car oscillate and slowly accelerate BACKWARDS
- * — it drifted to -0.66 m/s in testing.
- *
- * The rule is deliberately narrow, so it can never mask real dynamics:
- *   - the driver must not be demanding throttle, and
- *   - they must be braking, or already crawling below the threshold anyway.
- *
- * A car under power, or coasting at speed, is untouched by this.
+ * Do not reintroduce a snap-to-stop. It hides the symptom and breaks the ability to
+ * creep, which a driver needs at walking pace in the pit lane.
  */
-const STOP_SPEED = 0.35;
-
-/** Lateral velocity below which a near-stationary car is considered settled [m/s]. */
-const SETTLE_LATERAL_SPEED = 0.2;
 
 export interface CarParams {
   mass: number;
@@ -269,66 +262,46 @@ export const createCarState = (x = 0, y = 0, heading = 0): CarState => ({
 });
 
 /** Aerodynamic downforce [N] at a given speed, scaling with speed squared. */
-export const downforceAt = (speed: number, valueAt50: number): number => {
+const downforceAt = (speed: number, valueAt50: number): number => {
   const ratio = speed / 50;
   return valueAt50 * ratio * ratio;
 };
 
 /**
- * Per-wheel normal loads, including longitudinal and lateral weight transfer.
+ * Fills in the per-wheel normal loads for this tick.
  *
- * `longAccel` is measured longitudinal acceleration, NEGATIVE under braking. Its
- * sign is what produces the behaviour the whole tire model depends on: braking
- * unloads the rear axle and loads the front, so with forward brake bias the fronts
- * are the first to run out of grip.
- *
- * Lateral transfer is the same steady-state relation applied side to side. It
- * unloads the inside wheel in a corner, which is why a car can lock its inside
- * front or spin up its inside rear while the other side looks fine.
- *
- * Loads here are the FULL axle load split across its two wheels.
+ * Delegates to `wheelNormalLoads` in the tire module, which is the single source of
+ * truth for static weight, downforce and weight transfer in both axes. This used to be
+ * a second implementation living here, which meant the model the tests exercised and
+ * the model the car actually ran could drift apart without anything noticing.
  */
-export const computeNormalLoads = (
+const applyNormalLoads = (
   state: CarState,
   params: CarParams,
   longAccel: number,
   latAccel: number,
 ): void => {
-  const g = 9.81;
-  const totalWeight = params.mass * g;
-
-  // Capped so a collision spike cannot hand out an absurd grip advantage.
-  const maxTransfer = totalWeight * 0.5;
-  const longTransfer = clamp(
-    (params.mass * longAccel * params.cgHeight) / params.wheelbase,
-    -maxTransfer,
-    maxTransfer,
-  );
-
   const speed = len(state.vx, state.vy);
-  const frontAxle = Math.max(
-    0,
-    totalWeight * params.weightDistFront - longTransfer + downforceAt(speed, params.downforceFront),
+  const downforce =
+    downforceAt(speed, params.downforceFront) + downforceAt(speed, params.downforceRear);
+
+  const loads = wheelNormalLoads(
+    params.mass,
+    9.81,
+    params.weightDistFront,
+    params.wheelbase,
+    params.cgHeight,
+    longAccel,
+    latAccel,
+    params.trackFront,
+    params.trackRear,
+    downforce,
   );
-  const rearAxle = Math.max(
-    0,
-    totalWeight * (1 - params.weightDistFront) +
-      longTransfer +
-      downforceAt(speed, params.downforceRear),
-  );
 
-  // Positive `latAccel` means accelerating toward body +y (left), which loads the
-  // LEFT wheel of each pair.
-  const frontTransfer = ((params.mass * latAccel * params.cgHeight) / params.trackFront) * 0.5;
-  const rearTransfer = ((params.mass * latAccel * params.cgHeight) / params.trackRear) * 0.5;
-
-  const frontHalf = frontAxle * 0.5;
-  const rearHalf = rearAxle * 0.5;
-
-  state.normalLoad[WHEEL_FL] = Math.max(0, frontHalf + frontTransfer);
-  state.normalLoad[WHEEL_FR] = Math.max(0, frontHalf - frontTransfer);
-  state.normalLoad[WHEEL_RL] = Math.max(0, rearHalf + rearTransfer);
-  state.normalLoad[WHEEL_RR] = Math.max(0, rearHalf - rearTransfer);
+  state.normalLoad[WHEEL_FL] = loads.fl;
+  state.normalLoad[WHEEL_FR] = loads.fr;
+  state.normalLoad[WHEEL_RL] = loads.rl;
+  state.normalLoad[WHEEL_RR] = loads.rr;
 };
 
 export interface StepContext {
@@ -502,7 +475,7 @@ export const stepCar = (
   state.steerAngle += clamp(steerTarget - state.steerAngle, -maxSteerDelta, maxSteerDelta);
 
   // --- load transfer from the previous tick's acceleration ---
-  computeNormalLoads(state, params, state.lastLongAccel, state.lastLatAccel);
+  applyNormalLoads(state, params, state.lastLongAccel, state.lastLatAccel);
 
   /**
    * Aerodynamic drag, applied per substep alongside the tire forces so it scales
@@ -705,5 +678,3 @@ export const stepCar = (
   state.distance += len(state.vx, state.vy) * dt;
 };
 
-/** Signed road speed along the car's heading [m/s]. */
-export const forwardSpeed = (state: CarState): number => state.vx;

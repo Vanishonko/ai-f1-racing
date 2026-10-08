@@ -29,6 +29,9 @@ const CORE_DIRS = ["packages/engine/src"];
 const BAKING_EXEMPT = new Set([
   "packages/engine/src/steerLut.ts",
   "packages/engine/src/math2d.ts",
+  // Bakes the tanh table at module load. The single `Math.tanh` call is the table
+  // construction and runs once; everything afterwards reads the table.
+  "packages/engine/src/activation.ts",
   // Design-time tooling, not runtime. This module turns a corner list into a
   // circuit at LOAD time and nothing in it runs during a physics tick, so the
   // cross-engine float guarantee the contract exists to protect does not apply.

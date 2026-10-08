@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   axleNormalLoads,
+  wheelNormalLoads,
   DEFAULT_TIRE,
   slipRatio,
   tireBudget,
@@ -15,7 +16,6 @@ const WHEELBASE = 3.6;
 const CG_HEIGHT = 0.30;
 const WHEEL_RADIUS = 0.33;
 const WEIGHT_DIST_FRONT = 0.45;
-const WHEEL_INERTIA = 1.1; // includes driveline reflected inertia
 const STATIC_FRONT_TIRE = (MASS * G * WEIGHT_DIST_FRONT) / 2;
 
 /** Force produced by one tire at a given slip ratio, free-rolling laterally. */
@@ -414,3 +414,43 @@ test("a locked wheel brakes measurably worse than one at the slip peak", () => {
 });
 
 
+
+test("load transfer: cornering unloads the inside wheels", () => {
+  /*
+   * The lateral axis was previously handled by a second, separate model inside `car.ts`
+   * that no test touched, while this module's model was the one under test. Both are now
+   * `wheelNormalLoads`, so this covers the case that was previously unverified.
+   */
+  const still = wheelNormalLoads(MASS, G, WEIGHT_DIST_FRONT, WHEELBASE, CG_HEIGHT, 0, 0, 1.6, 1.55);
+  assert.ok(
+    Math.abs(still.fl + still.fr + still.rl + still.rr - MASS * G) < 1e-6,
+    "at rest the four wheels must carry exactly the total weight",
+  );
+  assert.ok(Math.abs(still.fl - still.fr) < 1e-9, "at rest an axle is symmetric");
+
+  // Positive latAccel is toward body +y, which is left, so it loads the left wheels.
+  const turning = wheelNormalLoads(MASS, G, WEIGHT_DIST_FRONT, WHEELBASE, CG_HEIGHT, 0, 3 * G, 1.6, 1.55);
+  assert.ok(turning.fl > still.fl, "the outside (left) front must gain load");
+  assert.ok(turning.fr < still.fr, "the inside (right) front must lose load");
+  assert.ok(turning.rl > still.rl, "the outside rear must gain load");
+  assert.ok(turning.rr < still.rr, "the inside rear must lose load");
+
+  assert.ok(
+    Math.abs(turning.fl + turning.fr + turning.rl + turning.rr - MASS * G) < 1e-6,
+    "lateral transfer moves weight across the car, it does not create it",
+  );
+
+  // A wheel can be lifted clear of the road, but never carry negative load.
+  const extreme = wheelNormalLoads(MASS, G, WEIGHT_DIST_FRONT, WHEELBASE, CG_HEIGHT, 0, 40 * G, 1.6, 1.55);
+  assert.equal(extreme.rr, 0, "a lifted wheel carries no load, not negative");
+  assert.ok(extreme.rl > 0, "the loaded wheel carries the axle");
+
+  // The narrower rear track means the rear axle transfers more for the same moment.
+  const mild = wheelNormalLoads(MASS, G, WEIGHT_DIST_FRONT, WHEELBASE, CG_HEIGHT, 0, 1.5 * G, 1.6, 1.55);
+  const frontDelta = mild.fl - still.fl;
+  const rearDelta = mild.rl - still.rl;
+  assert.ok(
+    rearDelta > frontDelta,
+    `the narrower rear track must transfer more: rear ${rearDelta.toFixed(1)} N vs front ${frontDelta.toFixed(1)} N`,
+  );
+});

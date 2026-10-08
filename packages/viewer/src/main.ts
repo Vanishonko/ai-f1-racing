@@ -24,9 +24,9 @@ import {
   type CarState,
   type StepContext,
 } from "../../engine/src/car.ts";
-import { buildHandTrack, HAND_TRACKS, DEFAULT_TRACK_KEY } from "../../engine/src/trackLibrary.ts";
+import { buildCircuitByKey, CIRCUITS, DEFAULT_TRACK_KEY } from "../../engine/src/trackLibrary.ts";
 import { projectToTrack, projectToTrackNear, pointAtDistance, type Track } from "../../engine/src/track.ts";
-import { createTiming, updateTiming, formatTime, type TimingState } from "../../engine/src/timing.ts";
+import { createTiming, updateTiming, formatTime } from "../../engine/src/timing.ts";
 import { gripNoiseAt } from "../../engine/src/rng.ts";
 import { tireForces } from "../../engine/src/tire.ts";
 
@@ -38,7 +38,7 @@ const ctx = canvas.getContext("2d")!;
  * track library: a driver that is quick on one layout and slow on another is the
  * interesting case, and it is impossible to notice that without switching.
  */
-let track: Track = buildHandTrack(DEFAULT_TRACK_KEY)!;
+let track: Track = buildCircuitByKey(DEFAULT_TRACK_KEY)!;
 
 /**
  * Debug and measurement handle, exposed on `window`.
@@ -123,15 +123,6 @@ const resetToStart = (): void => {
  * being won or lost rather than only reporting the total.
  */
 const updateTimingPanel = (): void => {
-  const setText = (id: string, value: string): void => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = value;
-  };
-  const setClass = (id: string, cls: string): void => {
-    const el = document.getElementById(id);
-    if (el) el.className = cls;
-  };
-
   setText("lapCount", `${timing.laps}`);
   setText("lastLap", formatTime(timing.lastLap ? timing.lastLap.time : null));
   setText("bestLap", formatTime(timing.bestLap));
@@ -157,7 +148,7 @@ const updateTimingPanel = (): void => {
  * and it is invisible on a single layout.
  */
 const selectTrack = (key: string): void => {
-  const next = buildHandTrack(key);
+  const next = buildCircuitByKey(key);
   if (!next) return;
   track = next;
   // The debug handle must be updated too. Assigning the object once at startup
@@ -229,19 +220,19 @@ const setupTrackSelector = (): void => {
   const select = document.getElementById("trackSelect") as HTMLSelectElement | null;
   if (!select) return;
 
-  for (const entry of HAND_TRACKS) {
+  for (const entry of CIRCUITS) {
     const option = document.createElement("option");
     option.value = entry.key;
     option.textContent = entry.name;
     select.appendChild(option);
   }
-  select.value = HAND_TRACKS.find((t) => t.name === track.name)?.key ?? DEFAULT_TRACK_KEY;
+  select.value = CIRCUITS.find((entry) => entry.name === track.name)?.key ?? DEFAULT_TRACK_KEY;
   select.addEventListener("change", () => selectTrack(select.value));
 
   window.addEventListener("keydown", (event) => {
     const index = Number(event.key) - 1;
-    if (Number.isInteger(index) && index >= 0 && index < HAND_TRACKS.length) {
-      const key = HAND_TRACKS[index]!.key;
+    if (Number.isInteger(index) && index >= 0 && index < CIRCUITS.length) {
+      const key = CIRCUITS[index]!.key;
       select.value = key;
       selectTrack(key);
     }
@@ -640,9 +631,20 @@ const drawCar = (): void => {
 // ---------------------------------------------------------------------------
 // Panel
 // ---------------------------------------------------------------------------
-const text = (id: string, value: string): void => {
+/**
+ * DOM field helpers, defined once.
+ *
+ * `updateTimingPanel` had grown its own private copies of these, which is how two
+ * slightly different ways of writing to the same panel appear. Both lookups tolerate a
+ * missing element so the panel degrades rather than throwing if the markup changes.
+ */
+const setText = (id: string, value: string): void => {
   const node = document.getElementById(id);
   if (node) node.textContent = value;
+};
+const setClass = (id: string, className: string): void => {
+  const node = document.getElementById(id);
+  if (node) node.className = className;
 };
 const bar = (id: string, value: number): void => {
   const node = document.getElementById(id) as HTMLElement | null;
@@ -651,12 +653,12 @@ const bar = (id: string, value: number): void => {
 
 const updatePanel = (): void => {
   const speed = Math.sqrt(car.vx * car.vx + car.vy * car.vy) * 3.6;
-  text("speed", speed.toFixed(0));
-  text("gear", String(car.gear + 1));
-  text("rpm", car.rpm.toFixed(0));
-  text("thr-pct", `${Math.round(car.throttle * 100)}%`);
-  text("brk-pct", `${Math.round(car.brake * 100)}%`);
-  text("str-val", car.steerAngle.toFixed(2));
+  setText("speed", speed.toFixed(0));
+  setText("gear", String(car.gear + 1));
+  setText("rpm", car.rpm.toFixed(0));
+  setText("thr-pct", `${Math.round(car.throttle * 100)}%`);
+  setText("brk-pct", `${Math.round(car.brake * 100)}%`);
+  setText("str-val", car.steerAngle.toFixed(2));
   bar("thr", car.throttle);
   bar("brk", car.brake);
   // The bar fills rightward for a RIGHT turn, and the indicator is inverted
@@ -666,11 +668,11 @@ const updatePanel = (): void => {
   const frontLoad = car.normalLoad[WHEEL_FL]! + car.normalLoad[WHEEL_FR]!;
   const rearLoad = car.normalLoad[WHEEL_RL]! + car.normalLoad[WHEEL_RR]!;
   const total = frontLoad + rearLoad;
-  text("load", `${((frontLoad / total) * 100).toFixed(0)}% / ${((rearLoad / total) * 100).toFixed(0)}%`);
+  setText("load", `${((frontLoad / total) * 100).toFixed(0)}% / ${((rearLoad / total) * 100).toFixed(0)}%`);
 
   const frontUse = Math.max(car.utilization[WHEEL_FL]!, car.utilization[WHEEL_FR]!);
   const rearUse = Math.max(car.utilization[WHEEL_RL]!, car.utilization[WHEEL_RR]!);
-  text("grip", `${frontUse.toFixed(2)} / ${rearUse.toFixed(2)}`);
+  setText("grip", `${frontUse.toFixed(2)} / ${rearUse.toFixed(2)}`);
 
   const lockNode = document.getElementById("lock");
   if (lockNode) {
@@ -684,12 +686,11 @@ const updatePanel = (): void => {
   }
 
   const wear = (car.wear[0]! + car.wear[1]! + car.wear[2]! + car.wear[3]!) / 4;
-  text("wear", `${(wear * 100).toFixed(1)}%`);
+  setText("wear", `${(wear * 100).toFixed(1)}%`);
 
+  // Off-track warning: the car is outside the drivable width, which is what the
+  // accent colour drives.
   const projection = projectToTrack(track, car.x, car.y);
-  const onTrackNode = document.getElementById("rpm");
-  void onTrackNode;
-  // Off-track warning: the car is outside the drivable width.
   document.body.style.setProperty("--accent", projection.onTrack ? "#ff3b30" : "#ffb340");
 };
 

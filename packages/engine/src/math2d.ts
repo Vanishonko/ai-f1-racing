@@ -27,11 +27,6 @@ export const len = (x: number, y: number): number => Math.sqrt(x * x + y * y);
 /** Linear interpolation, clamped to the segment. */
 export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 
-/** Smooth 0..1 ramp. Uses only multiply/subtract — no transcendentals. */
-export const smoothstep = (edge0: number, edge1: number, x: number): number => {
-  const t = clamp01((x - edge0) / (edge1 - edge0));
-  return t * t * (3 - 2 * t);
-};
 
 /**
  * Ratio helper that never divides by zero and never returns a negative
@@ -56,16 +51,3 @@ export const saturate = (magnitude: number): number => {
   return m / Math.sqrt(1 + m * m);
 };
 
-/** Math functions allowed inside the deterministic core. */
-export const DETERMINISTIC_MATH = new Set([
-  "sqrt",
-  "abs",
-  "min",
-  "max",
-  "floor",
-  "ceil",
-  "round",
-  "trunc",
-  "sign",
-  "fround",
-]);

@@ -48,7 +48,7 @@ export interface TireParams {
  * scaling the input would push lateral slip past its own peak and distort the
  * shape of the curve.
  */
-export const TIRE_ANISOTROPY = 0.98;
+const TIRE_ANISOTROPY = 0.98;
 
 export const DEFAULT_TIRE: TireParams = {
   muX: 1.55,
@@ -75,7 +75,7 @@ export const slipRatio = (wheelSpeed: number, groundSpeed: number): number =>
  * Grip multiplier from load sensitivity: a heavily loaded tire has
  * proportionally less grip, so `mu_effective = mu * loadScale(Fz)`.
  */
-export const tireLoadScale = (Fz: number, p: TireParams = DEFAULT_TIRE): number => {
+const tireLoadScale = (Fz: number, p: TireParams = DEFAULT_TIRE): number => {
   const loadScale = 1 - p.loadSensitivity * (Fz / p.loadRef - 1);
   const clamped = loadScale > 0.25 ? loadScale : 0.25;
   return clamped;
@@ -126,10 +126,6 @@ export interface TireForce {
  *
  * Equal to `1 / slipRatioPeak`. With the default tire that is 9.0909.
  */
-export const slipReference = (p: TireParams): number => 1 / p.slipRatioPeak;
-
-const slipReferenceOf = (p: TireParams): number => 1 / p.slipRatioPeak;
-/**
 /**
  * Force available at full lock, as a fraction of the peak.
  *
@@ -190,7 +186,7 @@ const DEMAND_ANCHORS: ReadonlyArray<readonly [number, number]> = [
 ];
 
 /** Upper bound of the table, in multiples of the shared slip peak `tau`. */
-export const DEMAND_MAX_SLIP = DEMAND_ANCHORS[DEMAND_ANCHORS.length - 1]![0];
+const DEMAND_MAX_SLIP = DEMAND_ANCHORS[DEMAND_ANCHORS.length - 1]![0];
 
 /**
  * Table resolution. Chosen so linear interpolation between samples deviates from
@@ -226,7 +222,7 @@ const DEMAND_TABLE = ((): Float64Array => {
 
 /**
  * Share of the friction budget available at a given slip magnitude, measured in
- * units of the shared peak `tau` (see `slipReference`).
+ * units of the shared peak `tau`, which is 1.
  *
  * Bounded by 1 for every input, equal to 1 at `q == 1`, and settling near 0.85
  * at full lock.
@@ -298,10 +294,10 @@ export const tireForces = (
    * comparable and the resultant slip direction falls out without any
    * trigonometry.
    *
-   * Dividing both by `slipAnglePeak` is equivalent to dividing one of them by
-   * `slipRatioPeak` followed by a constant rescale, and it makes the slip
-   * magnitude come out in units where `slipReference(p)` is the shared peak for
-   * either channel alone.
+   * Dividing both by `slipAnglePeak` is equivalent to dividing one by
+   * `slipRatioPeak` and then rescaling by a constant, and it puts the slip magnitude
+   * in units where 1.0 is the shared peak for either channel alone — which is why
+   * `demand(1)` is the condition for full grip.
    */
   const sx = slipRatioVal / p.slipAnglePeak;
   const sy = slipAngle / p.slipAnglePeak;
@@ -369,32 +365,108 @@ export const tireForces = (
 };
 
 export interface AxleNormalLoads {
+  /** Total load on the front axle [N]. */
   front: number;
+  /** Total load on the rear axle [N]. */
   rear: number;
 }
 
+export interface WheelNormalLoads {
+  /** Load on the front-left, front-right, rear-left and rear-right wheels [N]. */
+  fl: number;
+  fr: number;
+  rl: number;
+  rr: number;
+}
+
 /**
- * Static + dynamic normal loads for a two-axle car.
+ * Normal load at each wheel, from static weight, aerodynamic downforce and weight
+ * transfer in BOTH axes.
  *
- * THE POINT OF THIS FUNCTION: under braking, `longAccel` is negative, and the
- * resulting pitch moment transfers load OFF the rear axle and ONTO the front.
- * The front tires therefore run closer to their friction limit than the rears
- * do, so under hard braking THE FRONTS LOCK FIRST. That is what makes the
- * classic "locked fronts, car goes straight" failure the default one, and it
- * falls out of load transfer rather than being hardcoded.
+ * THE SINGLE SOURCE OF TRUTH FOR LOAD TRANSFER. There used to be two: this file's
+ * longitudinal model, which the tests exercised, and a separate one inside `car.ts`
+ * that also handled the lateral axis. They agreed by luck rather than by design, and
+ * any change to one silently left the other behind. The lateral case is folded in here
+ * instead.
  *
- * A driver can still choose a rearward brake bias and lock the rears instead,
- * at which point the rear lateral force collapses and the car rotates. Both
- * behaviours come from the same equations.
+ * WHY IT MATTERS THAT THE SIGNS ARE RIGHT. `longAccel` is NEGATIVE under braking, and
+ * the resulting pitch moment transfers load off the rear axle and onto the front. The
+ * front tires therefore run closer to their friction limit, so under hard braking THE
+ * FRONTS LOCK FIRST unless the brake bias is moved rearward. That is what makes the
+ * classic "locked fronts, car goes straight" failure the default one, and it falls out
+ * of these equations rather than being hardcoded anywhere.
  *
- * @param mass        total mass [kg]
- * @param g           gravity [m/s^2]
- * @param weightDistFront fraction of static weight on the front, 0..1
- * @param wheelbase   [m]
- * @param cgHeight    centre-of-gravity height [m]
- * @param longAccel   longitudinal acceleration [m/s^2], negative under braking
- * @param aeroDownforce total downforce [N], split by weight distribution
+ * Lateral transfer unloads the inside wheels in a corner, which is where asymmetric
+ * tire wear and inside-wheel lockup come from. Positive `latAccel` means accelerating
+ * toward body +y, which is LEFT, so it loads the left wheels of each pair.
+ *
+ * @param longAccel  longitudinal acceleration [m/s^2], negative under braking
+ * @param latAccel   lateral acceleration [m/s^2] in the body frame, positive toward +y
+ * @param trackFront front track width [m]
+ * @param trackRear  rear track width [m]
+ * @param cgHeight   centre-of-gravity height [m]
+ * @param aeroDownforce total downforce [N], split by static weight distribution
  */
+export const wheelNormalLoads = (
+  mass: number,
+  g: number,
+  weightDistFront: number,
+  wheelbase: number,
+  cgHeight: number,
+  longAccel: number,
+  latAccel = 0,
+  trackFront = 1.6,
+  trackRear = 1.55,
+  aeroDownforce = 0,
+): WheelNormalLoads => {
+  const totalWeight = mass * g;
+
+  /*
+   * Longitudinal transfer is capped at half the car's weight.
+   *
+   * Unbounded, a collision spike in the acceleration estimate hands one axle an
+   * absurd load and with it an absurd amount of grip. The cap keeps the model sane
+   * without affecting anything reachable by driving, since it takes more than 1 g of
+   * measured acceleration on this wheelbase to approach it.
+   */
+  const maxTransfer = totalWeight * 0.5;
+  const longTransfer = clampAbs((mass * longAccel * cgHeight) / wheelbase, maxTransfer);
+
+  const aeroFront = aeroDownforce * weightDistFront;
+  const aeroRear = aeroDownforce * (1 - weightDistFront);
+
+  const frontAxle = Math.max(0, totalWeight * weightDistFront - longTransfer + aeroFront);
+  const rearAxle = Math.max(0, totalWeight * (1 - weightDistFront) + longTransfer + aeroRear);
+
+  /*
+   * Lateral transfer, per axle.
+   *
+   * CAPPED AT HALF THE AXLE LOAD, and the cap is not cosmetic. Applying the transfer
+   * and then clamping the inner wheel at zero DESTROYS load rather than moving it: in a
+   * 3 g corner the inner front would go to -440 N, clamping to 0, and the two axles
+   * together then carried 8389 N instead of the car's 7828 N of weight. The car gained
+   * 560 N of grip out of nothing exactly when it was working hardest, which is the
+   * worst possible place for an error like that.
+   *
+   * At the cap the inner wheel is at zero — a genuinely lifted wheel, which is a real
+   * thing in a fast corner — and the outer wheel carries the whole axle. Nothing is
+   * created and nothing is lost.
+   */
+  const frontTransfer = clampAbs(((mass * latAccel * cgHeight) / trackFront) * 0.5, frontAxle * 0.5);
+  const rearTransfer = clampAbs(((mass * latAccel * cgHeight) / trackRear) * 0.5, rearAxle * 0.5);
+
+  const frontHalf = frontAxle * 0.5;
+  const rearHalf = rearAxle * 0.5;
+
+  return {
+    fl: frontHalf + frontTransfer,
+    fr: frontHalf - frontTransfer,
+    rl: rearHalf + rearTransfer,
+    rr: rearHalf - rearTransfer,
+  };
+};
+
+/** Axle totals from `wheelNormalLoads`, for callers that reason per axle. */
 export const axleNormalLoads = (
   mass: number,
   g: number,
@@ -405,43 +477,21 @@ export const axleNormalLoads = (
   aeroDownforce = 0,
 ): AxleNormalLoads => {
   const staticWeight = mass * g;
-  const staticFront = staticWeight * weightDistFront;
-  const staticRear = staticWeight * (1 - weightDistFront);
-
-  // Longitudinal load transfer: dFz = m * a_x * h / L, rear-to-front when braking.
   const transfer = safeDiv(mass * longAccel * cgHeight, wheelbase, 1e-3);
-
   const aeroFront = aeroDownforce * weightDistFront;
   const aeroRear = aeroDownforce * (1 - weightDistFront);
-
-  // Neither axle may be unloaded past zero; a wheel in the air carries nothing.
-  const front = staticFront - transfer + aeroFront;
-  const rear = staticRear + transfer + aeroRear;
-
+  const front = staticWeight * weightDistFront - transfer + aeroFront;
+  const rear = staticWeight * (1 - weightDistFront) + transfer + aeroRear;
   return {
     front: front > 0 ? front : 0,
     rear: rear > 0 ? rear : 0,
   };
 };
 
-/**
- * Lateral load transfer across an axle, from cornering acceleration.
- * Unloads the inside wheel and loads the outside, which is where asymmetric
- * tire wear and inside-wheel lockup come from.
- */
-export const lateralLoadSplit = (
-  axleLoad: number,
-  mass: number,
-  latAccel: number,
-  cgHeight: number,
-  trackWidth: number,
-): { inner: number; outer: number } => {
-  const transfer = safeDiv(mass * latAccel * cgHeight, trackWidth, 1e-3) * 0.5;
-  const outer = axleLoad * 0.5 + transfer;
-  const inner = axleLoad * 0.5 - transfer;
-  return {
-    inner: inner > 0 ? inner : 0,
-    outer: outer > 0 ? outer : 0,
-  };
+const clampAbs = (value: number, limit: number): number => {
+  if (value > limit) return limit;
+  if (value < -limit) return -limit;
+  return value;
 };
+
 

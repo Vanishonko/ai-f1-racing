@@ -14,7 +14,7 @@
  * Deterministic: no transcendentals at load beyond the ones baked here once.
  */
 
-import { clamp, len } from "./math2d.ts";
+import { len } from "./math2d.ts";
 
 export interface TrackControlPoints {
   /** Closed loop of waypoints, in world metres. Not repeated at the end. */
@@ -39,7 +39,7 @@ export interface TrackControlPoints {
  * distance-to-sample lookup, the projection and the lap counter all describe the
  * same path.
  */
-export const rebuildArcLength = (track: Track): Track => {
+const rebuildArcLength = (track: Track): Track => {
   const count = track.xs.length;
   if (count === 0) return track;
 
@@ -265,7 +265,7 @@ export const buildTrack = (
  * Uses a truncating division rather than a modulo so a negative or very large
  * distance still lands in range.
  */
-export const sampleIndexAt = (track: Track, distance: number): number => {
+const sampleIndexAt = (track: Track, distance: number): number => {
   const count = track.s.length;
   if (count === 0) return 0;
 
@@ -345,7 +345,7 @@ export const pointAtDistance = (track: Track, distance: number): TrackPoint => {
  * O(n) and correct; a spatial grid would make it O(1) and is what the observation
  * raycasts will need. Kept honest here rather than pretended at.
  */
-export const nearestSample = (track: Track, x: number, y: number): number => {
+const nearestSample = (track: Track, x: number, y: number): number => {
   let best = 0;
   let bestDistance = Infinity;
   for (let i = 0; i < track.xs.length; i++) {
@@ -467,7 +467,14 @@ export interface Projection {
   s: number;
   /** Signed lateral offset from the centreline, positive to the left [m]. */
   d: number;
-  /** Heading of the centreline at the projection, for computing relative angle. */
+  /**
+   * Unit tangent of the centreline at the projection.
+   *
+   * This is a direction, not an angle, and deliberately so: every consumer here needs the
+   * relative angle between the car and the track, and that is available directly from the
+   * two directions without ever forming an angle. An `atan2` per projection would be a
+   * banned transcendental on a hot path.
+   */
   tangentX: number;
   tangentY: number;
   /** True when the point is within the drivable half-width. */
@@ -607,5 +614,3 @@ export const validateTrack = (track: Track): string | null => {
   return null;
 };
 
-/** Half-width, exposed for callers that only have the spec. */
-export const halfWidthOf = (spec: TrackControlPoints): number => clamp(spec.halfWidth, 3, 20);

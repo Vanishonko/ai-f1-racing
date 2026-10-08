@@ -19,7 +19,7 @@
  */
 
 export const MAX_STEER_ANGLE = 0.55; // rad, about 31 degrees of lock
-export const TWO_PI = Math.PI * 2;
+const TWO_PI = Math.PI * 2;
 
 /**
  * Resolution of both tables.

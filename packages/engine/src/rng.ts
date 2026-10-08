@@ -83,10 +83,10 @@ export const createRng = (seed: number): Rng => {
  * Magnitude is deliberately small: enough to make the limit a moving target,
  * not enough to feel random.
  */
-export const GRIP_NOISE_STEPS = 4096;
-export const GRIP_NOISE_AMPLITUDE = 0.015;
+const GRIP_NOISE_STEPS = 4096;
+const GRIP_NOISE_AMPLITUDE = 0.015;
 
-export const GRIP_NOISE = ((): Float64Array => {
+const GRIP_NOISE = ((): Float64Array => {
   const rng = createRng(0x5eed_1234);
   const table = new Float64Array(GRIP_NOISE_STEPS);
   // Smooth the raw noise so grip varies gradually rather than jittering per step.
