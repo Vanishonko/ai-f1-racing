@@ -457,3 +457,62 @@ is set by how fast the radius changes with angle, which is controllable directly
 
 The trainer. The environment is now good enough to race on, which was the whole point of
 doing the tracks first.
+
+
+## The AI: what was built, and the six things it cost to get right
+
+### What exists
+
+A driver is a 38-16-3 neural network mapping a fixed observation to throttle, brake and steering.
+`sense.ts` defines the observation: eleven rays ahead, speed, attitude relative to the track, engine
+state and tire use, all normalised into a usable range. `evolve.ts` trains by evolution strategy.
+`train.ts` runs for a given number of hours and checkpoints the best driver found.
+
+A driver is a PURE FUNCTION of its observation. That single property gives a trained driver
+replayability, a reproducible training run, and the guarantee that the viewer and the trainer run
+the identical simulation rather than two implementations that drift.
+
+### Six failures worth recording
+
+1. **A circuit's shape is an input, not an output.** Generating turn angles that sum to a whole
+   number of turns, and keeping the ones that do not cross, systematically keeps CONVEX REGULAR
+   shapes. Every generated circuit came out looking like a rounded polygon, and the complaint was
+   "this is not NASCAR" — correctly.
+
+2. **Three solvers were written to close a path before the representation was recognised as the
+   problem.** Solving for the straight lengths is ill-conditioned: the solver achieves closure by
+   making straights hundreds of metres long or negative. A ring of waypoints is closed by
+   definition and needs no solving.
+
+3. **Staying on the circuit has to GATE the score.** With distance alone, over 130 generations
+   fitness rose to 1249 while on-track time fell from 80 per cent to 15. The search had found that
+   leaving the track is fast, because centreline distance keeps accruing across the infield.
+
+4. **A pedal output of zero must mean a released pedal.** A symmetric mapping centred at zero made
+   an untrained driver demand half throttle and half brake together. The car sat motionless, and
+   with no movement there is no gradient: eighty generations produced literally no progress. Two
+   attempted fixes then failed in opposite directions before the right shape was found.
+
+5. **The elite and its score must be recorded together.** Saving the search centre AFTER the Adam
+   step rather than before it meant the recorded parameters were not the ones that earned the
+   score. The run reported a best fitness of 1751 for a driver that measured 786.
+
+6. **Reusing scratch state between evaluations makes scoring depend on the caller.** The obvious
+   allocation-saving optimisation meant the same parameters scored differently depending on what
+   had been evaluated before. A generation is dominated by the physics, so the saving was never
+   worth it.
+
+There is a seventh, methodological one, and it is the oldest lesson in this log: **measure, do not
+reason, about geometry and numerics.** A baked logarithm was written three times and was wrong three
+times — the wrong argument, then a stray `+1` that made `log(1)` non-zero, then a descending table
+so every lookup returned an endpoint. Each version looked obviously correct. Only measuring the
+error found them.
+
+### Where it stands
+
+Training runs and improves the driver it is given. Measured over a three-minute run: mean sample
+distance 0 → 555 m, best driver 422 m in 120 s at 85 per cent on track.
+
+What does NOT exist yet, and is next: car-to-car awareness, collisions, damage, per-driver sector
+timing across a field, grid starts, positions, and Elo ratings. The racing, in other words — which
+is the point of the exercise and the reason the environment was worth getting right first.
