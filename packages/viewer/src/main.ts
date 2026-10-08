@@ -183,6 +183,21 @@ window.addEventListener("blur", () => held.clear());
  * viewer changes the physics, which is what makes what you watch worth believing.
  */
 let driver: Driver | null = null;
+
+/**
+ * What the loaded checkpoint was, so the panel can say which driver is driving.
+ *
+ * A generation number is the only way to tell two checkpoints apart at a glance, and without it
+ * there is no way to know whether the thing on screen is the run you just finished or one from
+ * an hour ago.
+ */
+interface DriverInfo {
+  generation: number;
+  fitness: number;
+  trainedSeconds: number;
+  circuit: string;
+}
+let driverInfo: DriverInfo | null = null;
 const observation = createObservation();
 const aiControls = { throttle: 0, brake: 0, steer: 0 };
 
@@ -196,14 +211,26 @@ let aiDriving = false;
  * the network would otherwise load silently and produce a driver whose weights land in the
  * wrong layers, which looks like a driver that simply cannot drive.
  */
-const loadDriver = (data: unknown): string | null => {
+const loadDriver = (data: unknown, circuitName: string): string | null => {
   if (typeof data !== "object" || data === null) return "checkpoint is not an object";
-  const record = data as { genes?: unknown; circuit?: unknown; fitness?: unknown };
+  const record = data as {
+    genes?: unknown;
+    circuit?: unknown;
+    fitness?: unknown;
+    generation?: unknown;
+    seconds?: unknown;
+  };
   if (!Array.isArray(record.genes)) return "checkpoint has no genes array";
   if (record.genes.length !== PARAMETER_COUNT) {
     return `checkpoint has ${record.genes.length} parameters, this build needs ${PARAMETER_COUNT}`;
   }
   driver = createDriver(Float64Array.from(record.genes as number[]), () => 0);
+  driverInfo = {
+    generation: typeof record.generation === "number" ? record.generation : 0,
+    fitness: typeof record.fitness === "number" ? record.fitness : 0,
+    trainedSeconds: typeof record.seconds === "number" ? record.seconds : 0,
+    circuit: typeof record.circuit === "string" ? record.circuit : circuitName,
+  };
   return null;
 };
 
@@ -217,12 +244,33 @@ const fetchDriverFor = async (circuitKey: string): Promise<void> => {
       if (status) status.textContent = "no checkpoint for this circuit";
       return;
     }
-    const error = loadDriver(await response.json());
+    const error = loadDriver(await response.json(), circuitKey);
     if (status) status.textContent = error ?? "trained driver loaded";
   } catch {
     driver = null;
+    driverInfo = null;
     if (status) status.textContent = "checkpoint could not be read";
   }
+};
+
+/** Writes the checkpoint's own metadata into the driver panel. */
+const updateDriverPanel = (): void => {
+  const setField = (id: string, value: string): void => {
+    const node = document.getElementById(id);
+    if (node) node.textContent = value;
+  };
+  if (!driverInfo) {
+    setField("ai-gen", "--");
+    setField("ai-fitness", "--");
+    setField("ai-trained", "--");
+    return;
+  }
+  setField("ai-gen", String(driverInfo.generation));
+  setField("ai-fitness", driverInfo.fitness.toFixed(0));
+  setField(
+    "ai-trained",
+    driverInfo.trainedSeconds > 0 ? `${driverInfo.trainedSeconds} s runs` : "--",
+  );
 };
 
 /**
@@ -847,6 +895,7 @@ const frame = (now: number): void => {
   trail.push({ x: car.x, y: car.y });
   if (trail.length > TRAIL_LENGTH) trail.shift();
 
+  updateDriverPanel();
   updateTimingPanel();
   updateCamera();
   ctx.fillStyle = REDRAW.sky;

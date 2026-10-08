@@ -170,6 +170,24 @@ export const runDriver = (
   track: Track,
   options: RunOptions = {},
   scratch?: { car: CarState; observation: Observation; controls: Controls },
+): RunResult => runPolicy((observation, controls) => drive(driver, observation, controls), track, options, scratch);
+
+/**
+ * The same evaluation, driven by any control function rather than by a network.
+ *
+ * THE POINT IS MEASUREMENT. A trained driver can only be judged against something, and "better
+ * than nothing" is not a standard. This lets a hand-written policy, or a scripted manoeuvre, be
+ * scored by exactly the same code that scores an evolved driver — same car, same track, same
+ * objective, same determinism — so a comparison means something.
+ *
+ * It is also how a baseline is established: if a few lines of ordinary driving beat a long
+ * evolutionary run, the search is what needs attention rather than the driver.
+ */
+export const runPolicy = (
+  policy: (observation: Observation, controls: Controls) => void,
+  track: Track,
+  options: RunOptions = {},
+  scratch?: { car: CarState; observation: Observation; controls: Controls },
 ): RunResult => {
   const seconds = options.seconds ?? DEFAULT_RUN_SECONDS;
   const params = options.params ?? DEFAULT_CAR_PARAMS;
@@ -248,7 +266,10 @@ export const runDriver = (
     if (lockDelta > 0) lockedSteps++;
     if (spinDelta > 0) wheelspinSteps++;
 
-    drive(driver, observation, controls);
+    controls.throttle = 0;
+    controls.brake = 0;
+    controls.steer = 0;
+    policy(observation, controls);
     car.throttle = controls.throttle;
     car.brake = controls.brake;
     car.steerCommand = controls.steer;
