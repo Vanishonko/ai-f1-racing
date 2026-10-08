@@ -25,6 +25,8 @@ import {
   DEFAULT_ENGINE,
   DEFAULT_GEARBOX,
   buildShiftSchedule,
+  clutchEngagement,
+  rawRpmFor,
   engineTorque,
   nextGear,
   rpmFor,
@@ -170,7 +172,7 @@ export const DEFAULT_CAR_PARAMS: CarParams = (() => {
     wheelRadius: 0.33,
     wheelInertia: 1.1,
     weightDistFront,
-    brakeBiasFront: 0.64,
+    brakeBiasFront: 0.82,
     maxBrakeTorque: 6200,
     engine: DEFAULT_ENGINE,
     gearbox: DEFAULT_GEARBOX,
@@ -246,7 +248,13 @@ export const createCarState = (x = 0, y = 0, heading = 0): CarState => ({
   utilization: new Float64Array(WHEEL_COUNT),
   saturated: new Uint8Array(WHEEL_COUNT),
   wear: new Float64Array(WHEEL_COUNT),
-  gear: 0,
+  /*
+   * Gear index ZERO IS FIRST GEAR — there is no neutral in the ratios array, so a
+   * car left at index 0 is in first with the clutch engaged, which is correct for a
+   * car sitting on the grid. It also has to be explicit: leaving it at 0 while
+   * treating 0 as neutral made the car unable to pull away at all.
+   */
+  gear: 1,
   rpm: DEFAULT_ENGINE.idleRpm,
   shiftTimer: 0,
   throttle: 0,
@@ -437,7 +445,7 @@ export const stepCar = (
    * limiter, which is what keeps the feedback physical. Only the gear choice is
    * taken from the car's true speed.
    */
-  const rollingRpm = rpmFor(state.vx / params.wheelRadius, gearRatio, params.gearbox.finalDrive, params.engine);
+  const rollingRpm = rawRpmFor(state.vx / params.wheelRadius, gearRatio, params.gearbox.finalDrive);
 
   // Gear selection. A shift takes time, so the drive torque is cut for its
   // duration and no further shift is considered until it completes.
@@ -458,10 +466,35 @@ export const stepCar = (
     }
   }
 
-  // No drive torque while the gear is changing.
+  /*
+   * Drive torque at the crank, cut while the gear is changing and scaled by how far
+   * the clutch is engaged.
+   *
+   * The clutch term is what stops the car driving itself BACKWARDS with no controls:
+   * engine braking is real, but at a standstill the clutch is slipping, so almost
+   * none of it reaches the road. See `clutchEngagement`.
+   */
   const throttleDemand = clamp(state.throttle, 0, 1) * clamp(context.throttleScale, 0, 1);
-  const engineOut =
-    engineTorque(state.rpm, throttleDemand, params.engine) * (state.shiftTimer > 0 ? 0 : 1);
+  const clutch = clutchEngagement(rollingRpm, params.engine);
+  let engineOut =
+    engineTorque(state.rpm, throttleDemand, params.engine) *
+    (state.shiftTimer > 0 ? 0 : 1) *
+    clutch;
+
+  /*
+   * ENGINE BRAKING CANNOT DRIVE THE CAR BACKWARDS.
+   *
+   * A slipping clutch transmits torque in both directions, which is fine for the
+   * engine driving the wheels but wrong for the reverse: a stationary car cannot be
+   * pushed backwards by its own engine braking, because there is nothing turning the
+   * engine to produce that drag in the first place. Leaving it in produced a slow
+   * reverse creep of about 0.15 m/s^2 that never quite stopped.
+   *
+   * Below roughly idle in wheel terms the drivetrain therefore transmits DRIVE only,
+   * and drag is discarded. Above it the normal model applies, so lifting off at speed
+   * still slows the car the way engine braking should.
+   */
+  if (engineOut < 0 && rollingRpm < params.engine.idleRpm * 0.75) engineOut = 0;
 
   // --- steering actuator, rate limited so full lock takes time to apply ---
   const steerTarget = clamp(state.steerCommand, -1, 1) * MAX_STEER_ANGLE;

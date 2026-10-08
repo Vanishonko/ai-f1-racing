@@ -41,6 +41,14 @@ export interface EngineSpec {
   redlineRpm: number;
   /** Idle RPM, the floor when the clutch is slipping at low speed. */
   idleRpm: number;
+  /**
+   * RPM at which the clutch is fully engaged.
+   *
+   * Below this the clutch is slipping, so the engine and the road are only partly
+   * connected. Real cars need this or they stall; the simulation needed it because
+   * without it engine braking pushed the car BACKWARDS from a standstill.
+   */
+  clutchEngageRpm: number;
   /** Braking torque from the engine when the throttle is closed [N m]. */
   engineBrakingTorque: number;
 }
@@ -54,6 +62,7 @@ export const DEFAULT_ENGINE: EngineSpec = {
   torqueFalloffAtRedline: 0.6,
   redlineRpm: 15000,
   idleRpm: 1800,
+  clutchEngageRpm: 700,
   engineBrakingTorque: 90,
 };
 
@@ -107,6 +116,18 @@ export const torqueFraction = (rpm: number, spec: EngineSpec): number => {
  *
  * `throttle` scales the torque ABOVE the engine-braking baseline rather than
  * scaling it to zero, so a closed throttle produces drag instead of nothing.
+ *
+ * ZERO THROTTLE MEANS ZERO DRIVE TORQUE, however much torque the curve shows at that
+ * RPM, and that is not a detail. The torque curve reserves a sizeable fraction of peak
+ * at idle — 0.43 — which is right for an engine turning by itself, but it was reaching
+ * the gearbox too. Through a 3.4 first gear and a 3.7 final drive the residue comes to
+ * a few newton-metres at the driven wheels, and a few is enough: a stationary car with
+ * no controls crept backwards on its own idle, reaching 4 m of reverse travel.
+ *
+ * An idling engine's torque goes into overcoming its own friction and pumping losses to
+ * keep turning. It is not available at the flywheel to drive the car, and in a real car
+ * the torque converter or a slipping clutch absorbs what little is left. Whatever the
+ * curve says at that RPM, the driver is asking for nothing.
  */
 export const engineTorque = (rpm: number, throttle: number, spec: EngineSpec): number => {
   // Rev limiter. A fuel cut is abrupt, and that abruptness is the point: it is how
@@ -120,6 +141,54 @@ export const engineTorque = (rpm: number, throttle: number, spec: EngineSpec): n
   // Closed throttle: only drag, and more of it at higher RPM.
   const drag = spec.engineBrakingTorque * (clamp(rpm, 0, spec.redlineRpm) / spec.redlineRpm);
   return commanded - drag;
+};
+
+/**
+ * The fraction of the drivetrain's torque that reaches the road.
+ *
+ * THE BUG THIS FIXES. With no controls, the car accelerated BACKWARDS at 0.36 m/s^2
+ * and travelled 12 m in reverse in eight seconds. The cause was engine braking: a
+ * closed throttle produces drag proportional to RPM, and at idle that is about
+ * -13 N m, which through a 3.4 first gear and a 3.7 final drive becomes roughly
+ * -206 N at the contact patch. Nothing opposed it, because at a standstill the tires
+ * generate no force at all, so the car simply crept backwards — and then, once
+ * moving, the tires pushed forwards against the drag and it settled at a steady
+ * 10 km/h. A car that drives itself backwards is not a subtle modelling error.
+ *
+ * The physical answer is the one real cars use: the clutch SLIPS at low speed, so the
+ * engine is only partly connected to the wheels. Without it a real car would stall
+ * the moment you lifted off at a standstill.
+ *
+ * WHY IT RAMPS RATHER THAN SWITCHING. A first attempt let the clutch transmit NOTHING
+ * below idle RPM, which is the obvious reading of "slipping" and is a deadlock: the
+ * clutch needs wheel speed to engage, the wheels need torque to turn, and the car
+ * could never pull away at all — it sat at exactly 0 km/h at full throttle. A slipping
+ * clutch does not transmit nothing, it transmits a LIMITED torque, so this ramps from
+ * a small fraction at rest to fully engaged, letting the car creep away and then lock
+ * up as it gains speed.
+ *
+ * Engagement is keyed to WHEEL-derived RPM rather than engine RPM, because engine RPM
+ * is held at idle by definition and would never show that the car is stopped.
+ */
+export const clutchEngagement = (rollingRpm: number, spec: EngineSpec): number => {
+  /*
+   * Nearly fully engaged EVEN AT REST, because this is a racing clutch.
+   *
+   * Earlier versions used a floor of 0.12 and then 0.35, which stopped the car
+   * creeping but also strangled the launch: first gear could no longer spin the
+   * wheels, which is the whole character of the car and which the tests check for.
+   * A racing clutch is not a torque converter — it is dumped, and the car either
+   * spins its wheels or bogs.
+   *
+   * What actually stops the reverse creep is not this number but the fact that at
+   * zero wheel speed the engine's drag term is very small and engine braking is
+   * discarded below idle (see `STEP` in car.ts). The clutch only needs to soften the
+   * very first moments of a standing start, which is what the narrow ramp here does.
+   */
+  const floor = 0.9;
+  if (rollingRpm <= 0) return floor;
+  if (rollingRpm >= spec.clutchEngageRpm) return 1;
+  return floor + (1 - floor) * (rollingRpm / spec.clutchEngageRpm);
 };
 
 export interface GearboxSpec {
@@ -319,9 +388,27 @@ export const rpmFor = (
   finalDrive: number,
   spec: EngineSpec,
 ): number => {
-  const raw = wheelOmega * gearRatio * finalDrive * (60 / (2 * Math.PI));
+  const raw = rawRpmFor(wheelOmega, gearRatio, finalDrive);
   return raw < spec.idleRpm ? spec.idleRpm : raw;
 };
+
+/**
+ * The same conversion WITHOUT the idle floor.
+ *
+ * The floor exists so that a reported engine speed never reads below idle, which is
+ * right for a tachometer and WRONG for anything asking "is the car moving?". A
+ * clamped value is a constant 1800 rpm at a standstill, and that constant was being
+ * used as the wheel-derived engine speed, so:
+ *
+ *   - the clutch believed the car was rolling at 1800 rpm and stayed nearly half
+ *     engaged with the car parked, which let engine braking through to the road
+ *   - the result was a stationary car creeping backwards under no controls, reaching
+ *     4 m of reverse travel, with a standing start that behaved oddly as well
+ *
+ * Anything deriving a decision from whether the wheels are turning must use this one.
+ */
+export const rawRpmFor = (wheelOmega: number, gearRatio: number, finalDrive: number): number =>
+  wheelOmega * gearRatio * finalDrive * (60 / (2 * Math.PI));
 
 /** Time taken for one gearshift [s]. Drive torque is cut for its duration. */
 export const SHIFT_DURATION = 0.05;

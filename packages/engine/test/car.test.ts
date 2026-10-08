@@ -461,3 +461,63 @@ test("car: throttle is an analog control with a non-trivial optimum", () => {
     `full throttle must spin the wheels more: ${full.wheelspin.toFixed(2)} s vs ${part.wheelspin.toFixed(2)} s`,
   );
 });
+
+test("car: a car with no controls stays exactly where it is", () => {
+  /*
+   * THE BUG THIS EXISTS FOR, because it was invisible for a long time and is
+   * embarrassing in a driver-training project: with throttle and brake both at zero
+   * the car accelerated BACKWARDS, reaching 4 m of reverse travel in eight seconds.
+   *
+   * Three separate faults combined to cause it:
+   *
+   *  1. `rpmFor` clamps its result to idle so a tachometer never reads below idle.
+   *     The wheel-derived engine speed was taken from it, so at a standstill it read
+   *     a constant 1800 rpm and the clutch believed the car was rolling.
+   *  2. Engine braking therefore reached the road while parked, and through a 3.4
+   *     first gear that is a couple of hundred newtons pushing the car backwards.
+   *  3. Nothing opposed it, because a stationary tire generates no force at all. Once
+   *     moving, the tires pushed forwards against the drag and the car settled at a
+   *     steady 10 km/h of reverse creep.
+   *
+   * The car must therefore be able to stand still indefinitely, and must also still
+   * be able to pull away — the first attempt at a fix transmitted no torque at rest
+   * and left it unable to move at all, which is why both halves are checked.
+   */
+  const context: StepContext = {
+    ...CLEAN_AIR,
+    surfaceGrip: 1,
+    gripNoise: 1,
+    dirtyAir: 0,
+    brakeScale: 1,
+    throttleScale: 1,
+  };
+
+  const idle = createCarState();
+  for (let tick = 0; tick < 60 * 20; tick++) {
+    idle.throttle = 0;
+    idle.brake = 0;
+    stepCar(idle, DEFAULT_CAR_PARAMS, 1 / 60, context);
+  }
+
+  assert.ok(
+    idle.distance < 0.01,
+    `a car with no controls moved ${idle.distance.toFixed(3)} m in 20 s; it must stay put`,
+  );
+  assert.ok(
+    Math.abs(idle.vx) < 0.01,
+    `a car with no controls reached ${(idle.vx * 3.6).toFixed(2)} km/h`,
+  );
+
+  // And it must still be able to drive away from rest.
+  const launching = createCarState();
+  for (let tick = 0; tick < 60 * 3; tick++) {
+    launching.throttle = 0.3;
+    launching.brake = 0;
+    stepCar(launching, DEFAULT_CAR_PARAMS, 1 / 60, context);
+  }
+  assert.ok(
+    launching.distance > 1,
+    `a car at 30% throttle moved only ${launching.distance.toFixed(2)} m in 3 s; the clutch ` +
+      `must still transmit enough torque to pull away`,
+  );
+});
