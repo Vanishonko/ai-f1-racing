@@ -114,7 +114,8 @@ export const CIRCUITS: ReadonlyArray<NamedTrack> = [
 ];
 
 /** Builds one named circuit. */
-const buildCircuit = (entry: NamedTrack): Track => buildTrack(entry.spec, entry.name);
+const buildCircuit = (entry: NamedTrack): Track =>
+  buildTrack(entry.spec, entry.name, entry.key);
 
 /** Builds every circuit, in the order they are listed. */
 export const buildCircuits = (): Track[] => CIRCUITS.map(buildCircuit);

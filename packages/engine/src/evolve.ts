@@ -36,6 +36,7 @@ import { createDriver, PARAMETER_COUNT, type Driver } from "./driver.ts";
 import { createRng, type Rng } from "./rng.ts";
 import { logUnit } from "./activation.ts";
 import type { Track } from "./track.ts";
+import type { EvaluationPool } from "./evaluationPool.ts";
 
 export interface EvolutionConfig {
   /** Perturbations per generation. Each is evaluated twice, so this is half the cost. */
@@ -226,12 +227,13 @@ const score = (genes: Float64Array, track: Track, options: RunOptions): RunResul
  * @param track the circuit to train on
  * @param onSample called after each evaluation, for progress reporting
  */
-export const trainGeneration = (
+export const trainGeneration = async (
   state: TrainerState,
   track: Track,
   runOptions: RunOptions = {},
   onSample?: (done: number, total: number, result: RunResult) => void,
-): GenerationReport => {
+  pool?: EvaluationPool,
+): Promise<GenerationReport> => {
   const { config, rng } = state;
   const samples = config.populationSize;
   const gaussian = createGaussian(rng);
@@ -285,8 +287,36 @@ export const trainGeneration = (
       plus[p] = state.mean[p]! + noise[p]!;
       minus[p] = state.mean[p]! - noise[p]!;
     }
-    evaluate(plus, i);
-    evaluate(minus, samples + i);
+  }
+
+  if (pool) {
+    /*
+     * Every sample is independent, so they all go out at once and the results come back in order.
+     * The pool preserves input order, which is what keeps a generation reproducible regardless of
+     * which worker happened to finish first.
+     */
+    const results = await pool.run(
+      variants.map((genes) => ({
+        genes,
+        circuit: track.key,
+        seconds: runOptions.seconds ?? 90,
+        objective: runOptions.objective ?? "speed",
+      })),
+    );
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i]!;
+      scores[i] = result.fitness;
+      meanFitness += result.fitness;
+      meanDistance += result.distance;
+      onTrackSum += result.onTrackFraction;
+      if (result.fitness > bestSample) bestSample = result.fitness;
+      onSample?.(i + 1, samples * 2, result as unknown as RunResult);
+    }
+  } else {
+    for (let i = 0; i < samples; i++) {
+      evaluate(variants[i]!, i);
+      evaluate(variants[samples + i]!, samples + i);
+    }
   }
 
   /*

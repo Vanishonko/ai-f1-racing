@@ -104,9 +104,21 @@ const startStateFor = (track: Track): StartState => {
   return state;
 };
 
+/**
+ * Which quantity the fitness is built on.
+ *
+ * BOTH EXIST BECAUSE THE CHOICE MATTERS AND WAS MADE BY ARGUMENT RATHER THAN MEASUREMENT. Distance
+ * has the flaw that braking costs it, so it discourages the most important skill in racing. Speed is
+ * distance over time, which is what the sport means by pace. Keeping both selectable means the
+ * difference can be measured instead of assumed, by `scripts/ab-test.ts`.
+ */
+export type Objective = "speed" | "distance";
+
 export interface RunOptions {
   /** Seconds of simulated driving. */
   seconds?: number;
+  /** Which quantity the fitness is built on. Defaults to average speed. */
+  objective?: Objective;
   /** Per-car physics, so a trained driver can be evaluated on a modified car. */
   params?: CarParams;
   /** True to record a trace for playback. Off by default because it costs memory. */

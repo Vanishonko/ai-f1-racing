@@ -71,6 +71,14 @@ export interface Track {
   spacing: number;
   halfWidth: number;
   name: string;
+  /**
+   * Stable identifier for this circuit, matching its entry in the circuit list.
+   *
+   * The display name is not usable as a lookup key — it contains spaces and is meant to be
+   * human-readable — and anything that crosses a process boundary needs to name a circuit rather
+   * than carry it. A worker thread cannot be sent a `Track`, so it is sent this instead.
+   */
+  key: string;
 }
 
 /** Distance between adjacent resampled centreline points [m]. */
@@ -116,6 +124,7 @@ const catmullRom = (
 export const buildTrack = (
   spec: TrackControlPoints,
   name = "unnamed",
+  key = name,
 ): Track => {
   const points = spec.points;
   const count = points.length;
@@ -256,6 +265,7 @@ export const buildTrack = (
     spacing,
     halfWidth: spec.halfWidth,
     name,
+    key,
   });
 };
 

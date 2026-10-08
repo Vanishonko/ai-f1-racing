@@ -70,7 +70,7 @@ for (const learningRate of LEARNING_RATES) {
     let improvedAt = -1;
     for (let generation = 1; generation <= generations; generation++) {
       const before = state.bestFitness;
-      trainGeneration(state, track, { seconds });
+      await trainGeneration(state, track, { seconds });
       if (improvedAt < 0 && state.bestFitness > before) improvedAt = generation;
     }
     const elite = runDriver(bestDriver(state), track, { seconds });

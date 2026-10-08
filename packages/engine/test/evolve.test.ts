@@ -19,7 +19,7 @@ import { runDriver } from "../src/environment.ts";
  */
 const SHORT = { seconds: 2 };
 
-test("evolve: a trainer is reproducible from its seed", () => {
+test("evolve: a trainer is reproducible from its seed", async () => {
   /*
    * The foundation. Without this a training curve is noise and no change to the code can be
    * attributed to anything, which makes the whole exercise unfalsifiable.
@@ -27,8 +27,8 @@ test("evolve: a trainer is reproducible from its seed", () => {
   const track = buildCircuitByKey("club")!;
   const a = createTrainer(4242, { populationSize: 4 });
   const b = createTrainer(4242, { populationSize: 4 });
-  const ra = trainGeneration(a, track, SHORT);
-  const rb = trainGeneration(b, track, SHORT);
+  const ra = await trainGeneration(a, track, SHORT);
+  const rb = await trainGeneration(b, track, SHORT);
 
   assert.equal(ra.meanFitness, rb.meanFitness, "the same seed must give the same generation");
   assert.equal(ra.bestSampleFitness, rb.bestSampleFitness);
@@ -50,11 +50,11 @@ test("evolve: a trainer is reproducible from its seed", () => {
     `only ${differing} of ${a.mean.length} parameters differed between two seeds`,
   );
   // And a run from a different seed must still be self-consistent.
-  const rc = trainGeneration(c, track, SHORT);
+  const rc = await trainGeneration(c, track, SHORT);
   assert.ok(Number.isFinite(rc.meanFitness), "the different-seed run must still be finite");
 });
 
-test("evolve: the recorded elite is the driver it claims to be", () => {
+test("evolve: the recorded elite is the driver it claims to be", async () => {
   /*
    * THE BUG THIS EXISTS FOR. The best-ever parameters and the best-ever score must belong to
    * each other. An earlier version scored the search centre, then took the Adam step, then saved
@@ -67,7 +67,7 @@ test("evolve: the recorded elite is the driver it claims to be", () => {
   const track = buildCircuitByKey("chicane")!;
   const state = createTrainer(77, { populationSize: 6 });
   for (let generation = 0; generation < 6; generation++) {
-    trainGeneration(state, track, SHORT);
+    await trainGeneration(state, track, SHORT);
 
     if (state.bestFitness === -Infinity) continue;
     const measured = runDriver(bestDriver(state), track, SHORT).fitness;
@@ -78,7 +78,7 @@ test("evolve: the recorded elite is the driver it claims to be", () => {
   }
 });
 
-test("evolve: the best-ever score never decreases", () => {
+test("evolve: the best-ever score never decreases", async () => {
   /*
    * Elitism is what makes a long unattended run safe: whatever state the search wanders into, the
    * recorded best is the best that was ever measured. Without it an overnight run could finish
@@ -88,7 +88,7 @@ test("evolve: the best-ever score never decreases", () => {
   const state = createTrainer(11, { populationSize: 4 });
   let previous = -Infinity;
   for (let generation = 0; generation < 8; generation++) {
-    trainGeneration(state, track, SHORT);
+    await trainGeneration(state, track, SHORT);
     assert.ok(
       state.bestFitness >= previous,
       `the best-ever score fell from ${previous} to ${state.bestFitness}`,
@@ -97,10 +97,10 @@ test("evolve: the best-ever score never decreases", () => {
   }
 });
 
-test("evolve: a generation reports what a generation should", () => {
+test("evolve: a generation reports what a generation should", async () => {
   const track = buildCircuitByKey("club")!;
   const state = createTrainer(5, { populationSize: 8 });
-  const report = trainGeneration(state, track, SHORT);
+  const report = await trainGeneration(state, track, SHORT);
 
   assert.equal(report.generation, 1, "generations are numbered from one");
   assert.ok(Number.isFinite(report.meanFitness), "mean fitness must be finite");
@@ -117,7 +117,7 @@ test("evolve: a generation reports what a generation should", () => {
   );
 });
 
-test("evolve: parameters change, and the search moves rather than sitting still", () => {
+test("evolve: parameters change, and the search moves rather than sitting still", async () => {
   /*
    * A silent failure mode of an evolution strategy is a zero-sized step — a learning rate of
    * nothing, or a gradient that always comes out zero because the rank utilities cancel. The
@@ -126,7 +126,7 @@ test("evolve: parameters change, and the search moves rather than sitting still"
   const track = buildCircuitByKey("club")!;
   const state = createTrainer(3, { populationSize: 6 });
   const before = state.mean.slice();
-  for (let generation = 0; generation < 5; generation++) trainGeneration(state, track, SHORT);
+  for (let generation = 0; generation < 5; generation++) await trainGeneration(state, track, SHORT);
 
   let moved = 0;
   for (let i = 0; i < before.length; i++) {
@@ -145,7 +145,7 @@ test("evolve: the two public drivers are distinct", () => {
   assert.equal(PARAMETER_COUNT_CHECK, bestDriver(state).genes.length);
 });
 
-test("evolve: a trainer can resume from existing parameters", () => {
+test("evolve: a trainer can resume from existing parameters", async () => {
   /*
    * A thirteen-hour run is worth hours of progress by the time anything interrupts it, so being
    * able to continue is what makes a long run safe. Without it a restart meant starting over,
@@ -164,7 +164,7 @@ test("evolve: a trainer can resume from existing parameters", () => {
   );
 
   // A resumed run must be usable immediately, not merely constructed.
-  const report = trainGeneration(resumed, track, SHORT);
+  const report = await trainGeneration(resumed, track, SHORT);
   assert.ok(Number.isFinite(report.meanFitness), "a resumed generation must produce a score");
   assert.ok(resumed.bestFitness > -Infinity, "a resumed run must establish a best of its own");
 

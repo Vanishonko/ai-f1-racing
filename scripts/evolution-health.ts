@@ -19,6 +19,7 @@
 import { buildCircuitByKey } from "../packages/engine/src/trackLibrary.ts";
 import { createTrainer, trainGeneration, bestDriver, assessRun } from "../packages/engine/src/evolve.ts";
 import { runDriver } from "../packages/engine/src/environment.ts";
+import { createEvaluationPool } from "../packages/engine/src/evaluationPool.ts";
 
 const arg = (name: string, fallback: number): number => {
   const index = process.argv.indexOf(`--${name}`);
@@ -43,11 +44,44 @@ if (!track) {
   process.exit(1);
 }
 
-const state = createTrainer(seed, { populationSize: population });
+/*
+ * REPORT THE COST BEFORE SPENDING IT.
+ *
+ * A run's duration is the thing anyone deciding whether to start one actually wants to know, and
+ * working it out afterwards is useless. One evaluation is a fixed amount of simulation, so the
+ * whole run is arithmetic: generations x perturbations x 2 (antithetic pairs) x the cost of one
+ * evaluation. The cost is measured here rather than assumed, because it depends on the circuit and
+ * the evaluation length.
+ */
+const measureEvaluationCost = async (pool: ReturnType<typeof createEvaluationPool>): Promise<number> => {
+  const state = createTrainer(seed, { populationSize: 2 });
+  const started = Date.now();
+  await trainGeneration(state, track, { seconds }, undefined, pool);
+  // Two perturbations are four evaluations, plus the centre's own.
+  return (Date.now() - started) / 1000 / 5;
+};
+const pool = createEvaluationPool();
+const SAMPLE = await measureEvaluationCost(pool);
+
+const totalEvaluations = generations * population * 2 + generations;
+const estimatedSeconds = totalEvaluations * SAMPLE;
+const finish = new Date(Date.now() + estimatedSeconds * 1000);
+
+console.log(`started ${new Date().toISOString()}`);
+console.log(`using ${pool.size} worker threads`);
 console.log(
   `${track.name}, ${generations} generations, ${population} perturbations, ` +
-    `${seconds} s evaluations, seed ${seed}\n`,
+    `${seconds} s evaluations, seed ${seed}`,
 );
+console.log(
+  `one evaluation takes ${(SAMPLE * 1000).toFixed(0)} ms, so ${totalEvaluations} evaluations ` +
+    `will take about ${(estimatedSeconds / 60).toFixed(1)} minutes`,
+);
+console.log(`estimated finish around ${finish.toISOString()}\n`);
+
+if (process.argv.includes("--estimate-only")) { await pool.close(); process.exit(0); }
+
+const state = createTrainer(seed, { populationSize: population });
 console.log("gen   elite    centre   mean-dist  on-track  steer   sample-best   note");
 
 let lastWarning = "";
@@ -55,7 +89,7 @@ let collapses = 0;
 let bestAtStart = -Infinity;
 
 for (let generation = 1; generation <= generations; generation++) {
-  const report = trainGeneration(state, track, { seconds });
+  const report = await await trainGeneration(state, track, { seconds });
   const health = assessRun(state, report);
   const elite = runDriver(bestDriver(state), track, { seconds });
 
@@ -94,6 +128,8 @@ console.log(
  * A non-zero exit when the search never improved is the whole point of the tool: it makes "the run
  * is dead" something a script can act on rather than something a person has to notice.
  */
+await pool.close();
+
 if (!improved) {
   console.error("\nFAIL: the search produced no improvement at all");
   process.exit(2);
