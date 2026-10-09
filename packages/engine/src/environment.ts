@@ -381,12 +381,21 @@ const FITNESS_WEIGHTS = {
    * throttle — had nothing pointing towards it. A driver that cannot move cannot reach a checkpoint
    * either, so all four terms were simultaneously zero and the landscape was flat.
    *
-   * Distance is therefore NOT gated, deliberately. Ten metres of grass is worth more than ten metres
-   * of nothing, and the reward for it is small enough that it can never compete with a checkpoint or a
-   * lap: about four hundred points for a whole ninety-second run against nine hundred for a single
-   * corner and four thousand for a lap. It is a floor under the gradient, not a strategy.
+   * Distance is therefore only PARTLY gated, and finding that number is the whole story of this
+   * constant. Fully gated, it contributes nothing until a driver can already stay on the circuit,
+   * which is the problem it exists to solve. Fully UNGATED, it is farmed: measured after fourteen
+   * thousand generations, the best driver found scored 2961 — of which 2699 came from driving two and
+   * a half kilometres with its on-track gate at 0.0007. A careful scripted driver staying entirely on
+   * the circuit scored 2057. THE SEARCH HAD LEARNED THAT LEAVING THE TRACK PAYS, and it was right.
+   *
+   * The factor below is therefore a ramp rather than a gate: a fifth of the reward is available
+   * immediately, so a car that cannot yet drive still has something to climb, and the remaining four
+   * fifths arrive as it learns to stay on the circuit. Monotonic in on-track fraction at every value,
+   * which is what makes it unprofitable to trade the circuit for distance.
    */
   distanceReward: 1.0,
+  /** The share of the distance reward available regardless of where the car is. */
+  distanceUngatedShare: 0.2,
 } as const;
 
 /**
@@ -665,10 +674,12 @@ export const runPolicy = (
    */
   const lapReward = (options.lapReward ?? 0) * laps * gate;
   /*
-   * Ungated, and the only term that is. See `distanceReward` for why: it exists to give a car that has
-   * not learned to move yet something to climb, and it is far too small to be worth farming.
+   * A ramp, not a gate and not a free pass. See `distanceReward`: the ungated share gives a car that
+   * cannot yet drive something to climb, and the rest arrives as it learns to stay on the circuit, so
+   * trading the circuit for distance is never profitable.
    */
-  const distanceTerm = distance * w.distanceReward;
+  const distanceTerm =
+    distance * w.distanceReward * (w.distanceUngatedShare + (1 - w.distanceUngatedShare) * onTrackFraction);
 
   /*
    * Checkpoint credit is the speed actually carried, as a fraction of what the car could have
