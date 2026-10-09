@@ -306,16 +306,24 @@ export const cornerCheckpoints = (
 
   const close = (exit: number): void => {
     /*
-     * Three points: entry, apex and exit. The apex is where curvature is greatest, which is the
-     * point of the corner rather than its midpoint — on an asymmetric corner those differ, and the
-     * apex is the one that matters for speed.
+     * APEX FIRST, and that ordering is not arbitrary.
+     *
+     * The apex is where curvature is greatest — the point of a corner rather than its midpoint, which
+     * on an asymmetric corner is somewhere else entirely, and it is the point that decides how fast
+     * the corner can be taken. So it is always included.
+     *
+     * The ENTRY is included only when it is strictly inside the lap. The pit straight runs from the
+     * start line into the first corner, so the first corner's entry sits AT distance zero — and a
+     * checkpoint at distance zero is awarded the instant a run begins, for no driving at all, on every
+     * lap. Measured: it fired at t=0.0 s of every run. Offsetting it by a metre would be a fudge;
+     * leaving it out is the honest version, because there is nothing to measure there.
      */
     const from = entry * spacing;
-    const to = exit * spacing;
     const middle = apex * spacing;
-    if (apexesPerCorner >= 1) found.push(from);
-    if (apexesPerCorner >= 2) found.push(middle);
-    if (apexesPerCorner >= 3) found.push(to);
+    const to = exit * spacing;
+    if (apexesPerCorner >= 2 && from > 1) found.push(from);
+    found.push(middle);
+    if (apexesPerCorner >= 3 && to > 1) found.push(to);
   };
 
   for (let i = 0; i < samples; i++) {
@@ -338,10 +346,18 @@ export const cornerCheckpoints = (
   // A corner still open at the last sample wraps past the start line and must still be recorded.
   if (inCorner) close(samples - 1);
 
-  // Sorted so the checkpoint order follows the lap, and de-duplicated so a very short corner does
-  // not produce the same point three times.
+  /*
+   * Sorted so the order follows the lap, and de-duplicated so a very short corner does not produce
+   * the same point three times.
+   *
+   * ANYTHING AT THE START LINE IS THEN DROPPED, whoever contributed it. The club circuit genuinely
+   * has its first apex at distance zero, so filtering by which point it was — entry or apex — is not
+   * enough: a checkpoint there is collected the instant a run begins, for no driving at all, on every
+   * lap. Measured, it fired at t=0.0 s. The honest fix is positional.
+   */
   found.sort((a, b) => a - b);
-  return found.filter((value, index) => index === 0 || value - found[index - 1]! > 1);
+  const deduped = found.filter((value, index) => index === 0 || value - found[index - 1]! > 1);
+  return deduped.filter((value) => value > 1);
 };
 
 /**

@@ -9,8 +9,9 @@ import {
   selfIntersections,
   validateTrack,
   type TrackControlPoints,
+  cornerCheckpoints,
 } from "../src/track.ts";
-import { buildCircuits, CIRCUITS } from "../src/trackLibrary.ts";
+import { buildCircuits, buildCircuitByKey, CIRCUITS } from "../src/trackLibrary.ts";
 
 test("track: every hand-authored layout builds and is drivable", () => {
   const tracks = buildCircuits();
@@ -348,5 +349,34 @@ test("track: continuous projection follows the lap without losing its place", ()
       `${track.name}: the reported advance differed from the distance travelled by ` +
         `${worst.toFixed(2)} m, which would corrupt every lap time`,
     );
+  }
+});
+
+test("track: no checkpoint is placed on the start line", () => {
+  /*
+   * A checkpoint at distance zero is awarded the instant a run begins, for no driving at all, on
+   * every lap — and it was: the club circuit's first corner has its entry AND its apex at the start
+   * line, so it fired at t=0.0 s of every run. A free point per lap, which is exactly the kind of
+   * thing a reward should not contain.
+   *
+   * Checked on every circuit, because it depends on where the first corner happens to sit and the
+   * club circuit is the one that exposed it.
+   */
+  for (const key of ["club", "spa", "baku", "chicane"]) {
+    const track = buildCircuitByKey(key)!;
+    const positions = cornerCheckpoints(track);
+    assert.ok(positions.length > 0, `${key} must have checkpoints`);
+    assert.ok(
+      positions[0]! > 1,
+      `${key}: the first checkpoint is at ${positions[0]} m, which the car is already past at the start`,
+    );
+    assert.ok(
+      positions[positions.length - 1]! < track.length,
+      `${key}: the last checkpoint is past the end of the lap`,
+    );
+    // Sorted, so the order they are passed is the order they are listed.
+    for (let i = 1; i < positions.length; i++) {
+      assert.ok(positions[i]! > positions[i - 1]!, `${key}: checkpoints must be in lap order`);
+    }
   }
 });
