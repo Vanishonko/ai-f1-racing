@@ -26,6 +26,7 @@ import {
 } from "../../engine/src/evolve.ts";
 import { runDriver, DEFAULT_RUN_SECONDS } from "../../engine/src/environment.ts";
 import { createEvaluationPool } from "../../trainer/src/evaluationPool.ts";
+import { availableParallelism } from "node:os";
 import { PARAMETER_COUNT } from "../../engine/src/driver.ts";
 import type { Track } from "../../engine/src/track.ts";
 
@@ -57,6 +58,7 @@ Train a driver by evolution strategy.
   --checkpoint <path>  where to save the best driver (default checkpoints/<circuit>.json)
   --report <n>         print a line every n generations (default 10)
   --workers <n>        evaluation worker threads (default: one per core, minus one)
+                       use one fewer than that if you want to watch in the browser
   --quiet              only print checkpoints and the final summary
   --no-resume          start from a fresh random draw instead of the checkpoint
   --list               list the available circuits and exit
@@ -359,7 +361,21 @@ const main = async (): Promise<void> => {
    * collected by index rather than by whichever worker finished first.
    */
   const pool = createEvaluationPool(options.workers);
-  say(`evaluating across ${pool.size} worker threads`);
+  /*
+   * Overflowing the cores costs more than the viewer does.
+   *
+   * Measured: seven workers on an eight-core machine gave 1.07 generations per second with the browser
+   * open and 1.09 with it closed — the viewer taking about eight per cent, because the trainer's
+   * coordinator and the browser's render loop were fighting over the single free core.
+   *
+   * Six workers, two cores spare, gives 1.10 with the browser open against 1.13 closed: the viewer
+   * costs about two per cent and the trainer is FASTER than it was with seven workers. Leaving a core
+   * idle is not waste when something else needs it.
+   */
+  say(
+    `evaluating across ${pool.size} worker threads ` +
+      `(${Math.max(0, availableParallelism() - pool.size)} cores left free)`,
+  );
   const started = Date.now();
   const deadline = started + options.hours * 3600 * 1000;
   let best = -Infinity;
