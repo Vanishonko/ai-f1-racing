@@ -173,6 +173,30 @@ export const smoothControls = (driver: Driver, dt: number): void => {
 
   applied.throttle = approach(applied.throttle, intent.throttle, PEDAL_RATE_LIMIT * dt);
   applied.brake = approach(applied.brake, intent.brake, PEDAL_RATE_LIMIT * dt);
+
+  /*
+   * THE PRIORITY RULE HAS TO BE RE-APPLIED HERE, and forgetting that parked the car.
+   *
+   * `drive` already stops the driver asking for both pedals at once, but it does so on the INTENT, and
+   * the rate limiter below moves each pedal independently towards its own target. So a driver whose
+   * intent is a little throttle and a lot of brake can end up APPLYING a little throttle and a lot of
+   * brake: the throttle has not risen to the level that would have suppressed the brake, and the brake
+   * has fallen only as fast as its own rate limit allows.
+   *
+   * Measured, that is exactly how the car parked itself: at zero speed with 0.02 of throttle and 0.51
+   * of brake, held indefinitely, because the brakes are far stronger than the engine and neither pedal
+   * could escape. A car at full throttle and full brake does not move — 0.044 m/s after five seconds —
+   * so a driver that settled into both pedals was stuck for the rest of the run, and the search saw a
+   * ceiling on its fitness that was not real.
+   *
+   * Applying the rule to the APPLIED values as well means the two can never both be pressed, whatever
+   * the intent and whatever the rate limits happen to be.
+   */
+  const total = applied.throttle + applied.brake;
+  if (total > 1) {
+    applied.brake = 1 - applied.throttle;
+    if (applied.brake < 0) applied.brake = 0;
+  }
 };
 
 export const createDriver = (genes?: Float64Array, random?: () => number): Driver => {

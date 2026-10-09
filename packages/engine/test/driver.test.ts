@@ -9,6 +9,7 @@ import {
   OUTPUT_SIZE,
   PARAMETER_OFFSETS,
   type Controls,
+  smoothControls,
 } from "../src/driver.ts";
 import { createObservation } from "../src/sense.ts";
 import { tanh, saturateUnit, logUnit } from "../src/activation.ts";
@@ -231,5 +232,60 @@ test("activation: the baked logarithm agrees with the real one", () => {
   assert.ok(
     Math.abs(logUnit(0.5) - Math.log(0.5)) < 1e-4,
     `log(0.5) off by ${Math.abs(logUnit(0.5) - Math.log(0.5)).toExponential(2)}`,
+  );
+});
+
+test("driver: the two pedals can never both be pressed", () => {
+  /*
+   * `drive` stops the driver ASKING for both pedals, but the rate limiter then moves each pedal
+   * independently towards its own target — so a little throttle and a lot of brake could end up
+   * APPLIED together even though neither was ever intended.
+   *
+   * Measured, that is exactly how the car parked itself: at zero speed with 0.02 of throttle and 0.51
+   * of brake, held indefinitely, because the brakes are far stronger than the engine and neither pedal
+   * could escape. A car at full throttle and full brake does not move at all — 0.044 m/s after five
+   * seconds — so a driver that settled into both pedals was stuck for the rest of the run, and the
+   * search saw a ceiling on its fitness that was not real.
+   *
+   * The intent is set directly rather than through `drive`, because `drive` recomputes the outputs from
+   * the network on every call and would overwrite anything a test wrote. This tests the constraint
+   * where it lives.
+   */
+  const driver = createDriver(new Float64Array(PARAMETER_COUNT), () => 0);
+
+  // Both pedals demanded flat out, which is the worst case the constraint has to survive.
+  for (let i = 0; i < 600; i++) {
+    driver.intent.throttle = 1;
+    driver.intent.brake = 1;
+    driver.intent.steer = 0;
+    smoothControls(driver, 1 / 60);
+    /*
+     * The two can never SUM above one, which is the constraint that matters: a car with both pedals
+     * fully down does not move at all, and a car with them partly down moves less than either pedal
+     * alone would suggest. Scaling the brake by the throttle on its own left a small residue — measured
+     * 0.009 at full demand — which is harmless but sloppy, and the absolute form is no more work.
+     */
+    assert.ok(
+      driver.applied.throttle + driver.applied.brake <= 1 + 1e-12,
+      `pedals sum to ${driver.applied.throttle + driver.applied.brake} at step ${i}`,
+    );
+  }
+  assert.ok(driver.applied.throttle > 0.9, "the throttle should be the one that wins");
+
+  /*
+   * And with the throttle released the brake must reach the car fully, on a fresh driver — the one
+   * above is still holding full throttle, and its brake staying near zero is the rule working.
+   */
+  const braking = createDriver(new Float64Array(PARAMETER_COUNT), () => 0);
+  for (let i = 0; i < 600; i++) {
+    braking.intent.throttle = 0;
+    braking.intent.brake = 1;
+    braking.intent.steer = 0;
+    smoothControls(braking, 1 / 60);
+  }
+  assert.equal(braking.applied.throttle, 0, "no throttle means no throttle");
+  assert.ok(
+    braking.applied.brake > 0.9,
+    `with the throttle released the brake should apply fully, got ${braking.applied.brake}`,
   );
 });
