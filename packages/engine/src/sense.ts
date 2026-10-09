@@ -28,6 +28,19 @@
  */
 
 import { steerSin, steerCos, headingBasis, MAX_STEER_ANGLE } from "./steerLut.ts";
+
+/**
+ * Half-length and half-width of the car body, for the track-limits test.
+ *
+ * Half the wheelbase, plus an overhang at each end, and half the track width plus a tire — which is
+ * what actually reaches the white line. A car is off the circuit when every corner of this rectangle
+ * is outside it, and on it while any corner is still inside.
+ *
+ * Only the width changes the answer much: the corners of a long thin rectangle are barely further from
+ * its centreline than its sides are. Both are modelled so the geometry is honest rather than
+ * convenient.
+ */
+const DEFAULT_CAR_GEOMETRY = { halfLength: 2.9, halfWidth: 1.05 };
 import { len } from "./math2d.ts";
 import { projectToTrackNear, type Track } from "./track.ts";
 import { WHEEL_FL, WHEEL_FR, WHEEL_RL, WHEEL_RR, type CarState } from "./car.ts";
@@ -119,11 +132,62 @@ export const observe = (
   car: CarState,
   track: Track,
   previousDistance: number,
+  /** The car's dimensions, for the track-limits test. Defaults match the default car. */
+  geometry: { halfLength: number; halfWidth: number } = DEFAULT_CAR_GEOMETRY,
 ): void => {
   const projection = projectToTrackNear(track, car.x, car.y, previousDistance);
+  void projection.onTrack;
   out.distance = projection.s;
   out.lateral = projection.d;
-  out.onTrack = projection.onTrack;
+  /*
+   * TRACK LIMITS ARE ABOUT THE WHEELS, NOT THE CENTRE.
+   *
+   * The projection reports whether the car's CENTRE is inside the white lines, which is a much weaker
+   * statement than the one racing uses: a car is off the circuit when ALL FOUR WHEELS are outside it,
+   * and it is very much still on it with two wheels on the kerb. Using the centre meant a car could
+   * have its whole left side in the grass and still be counted as on track, and a car that ran wide on
+   * the exit of a corner was credited with a clean one.
+   *
+   * The half-width of the car body is the track figure plus the tire, and the corners of that
+   * rectangle are what get tested. The wheelbase is not modelled separately because the corner extent
+   * does not depend on it.
+   */
+  /*
+   * The car's own dimensions, not invented ones. `halfLength` is half the wheelbase plus an
+   * overhang at each end, and `halfWidth` is the track width plus a tire, which is what actually
+   * reaches the white line.
+   */
+  const basis = headingBasis(car.heading);
+  // Rotation from the car's frame to the track's, as a direction, so no angle is formed.
+  const trackCos = projection.tangentX;
+  const trackSin = projection.tangentY;
+  const cosDelta = basis.c * trackCos + basis.s * trackSin;
+  const sinDelta = basis.s * trackCos - basis.c * trackSin;
+
+  const halfLength = geometry.halfLength;
+  const halfWidthCar = geometry.halfWidth;
+  /*
+   * The four corners, in the car's own frame, projected onto the track's normal.
+   *
+   * Initialised from the FIRST corner rather than from zero. Seeding both to zero and taking a
+   * running minimum looks harmless and is not: when every corner lies on the same side of the
+   * centreline — which is exactly the case for a car off the circuit in a straight line — the
+   * minimum never updates and stays at zero, so the test passes for a car that is entirely in the
+   * grass. It reported "on track" at ten metres off a track eight and a half metres wide.
+   */
+  let worstInward = Infinity;
+  let worstOutward = -Infinity;
+  for (let corner = 0; corner < 4; corner++) {
+    const along = corner < 2 ? halfLength : -halfLength;
+    const across = corner % 2 === 0 ? halfWidthCar : -halfWidthCar;
+    // Distance from the centreline along the track's normal, for a point offset in the car's frame.
+    const offset = projection.d + (-along * sinDelta + across * cosDelta);
+    if (offset > worstOutward) worstOutward = offset;
+    if (offset < worstInward) worstInward = offset;
+  }
+  // On the circuit while ANY part of the car is still within the lines. Off it only when every part
+  // has left, which is the rule the sport uses.
+  out.onTrack = worstInward <= track.halfWidth && worstOutward >= -track.halfWidth;
 
   /*
    * The car's heading RELATIVE TO THE TRACK, as a direction rather than an angle.

@@ -162,3 +162,62 @@ test("sense: driving off the track is reported as off the track", () => {
     `lateral offset ${observation.lateral.toFixed(2)} should exceed the half width`,
   );
 });
+
+test("sense: track limits are about the wheels, not the car's centre", () => {
+  /*
+   * Racing's rule, and the one the reward depends on: a car is off the circuit when ALL FOUR WHEELS
+   * are outside it, and still very much on it with two wheels on the kerb.
+   *
+   * The test that shipped first asked whether the car's CENTRE was within the white lines, which is a
+   * far weaker statement — a car could have its whole left side in the grass and be credited with a
+   * clean lap. Since the checkpoint reward is forfeited when a corner is crossed off the circuit, the
+   * difference decides whether cutting is punished at all.
+   */
+  const track = buildCircuitByKey("club")!;
+  const observation = createObservation();
+  const point = pointAtDistance(track, 0);
+  const heading = Math.atan2(point.ty, point.tx);
+  const halfWidth = track.halfWidth;
+  // Half the car's width, which is the figure that reaches the white line.
+  const carHalfWidth = 1.05;
+
+  const onTrackAt = (offset: number): boolean => {
+    const car = createCarState(
+      point.x - point.ty * offset,
+      point.y + point.tx * offset,
+      heading,
+    );
+    observe(observation, car, track, 0);
+    return observation.onTrack;
+  };
+
+  // Two wheels on the kerb is still on the circuit, however far out the centre is.
+  assert.equal(onTrackAt(0), true, "the centre of the track is on it");
+  assert.equal(
+    onTrackAt(halfWidth + carHalfWidth - 0.1),
+    true,
+    "inside wheels still on the circuit means on the circuit",
+  );
+
+  /*
+   * And only once every wheel has left does it count as off. The offset at which that happens is the
+   * half width plus the car's own half width, less a hair for the boundary itself — a car exactly on
+   * the line has a wheel exactly on it.
+   */
+  assert.equal(onTrackAt(halfWidth - carHalfWidth + 0.1), true, "comfortably inside");
+  assert.equal(
+    onTrackAt(halfWidth + carHalfWidth + 0.1),
+    false,
+    "past the point where the inside wheel leaves, the car is off",
+  );
+
+  /*
+   * The specific bug this exists for: an earlier version seeded its running minimum at zero, so when
+   * every corner of the car lay on the same side of the centreline the minimum never updated and the
+   * test passed for a car entirely in the grass. Ten metres off an eight-and-a-half-metre track was
+   * reported as on it.
+   */
+  assert.equal(onTrackAt(10), false, "a car well off the circuit is off it");
+  assert.equal(onTrackAt(20), false, "and further off is still off");
+  assert.equal(onTrackAt(-10), false, "the same on the other side");
+});
