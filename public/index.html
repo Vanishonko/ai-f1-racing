@@ -122,6 +122,7 @@
       <label><input type="checkbox" id="follow" checked> chase camera</label>
       <label><input type="checkbox" id="rays" checked> grip rings (load + utilization)</label>
       <label><input type="checkbox" id="ghost"> force vectors (per-tire, N)</label>
+      <label><input type="checkbox" id="checkpoints"> corner checkpoints (the reward positions)</label>
       <label><input type="checkbox" id="smoke"> tire smoke</label>
     </section>
 
@@ -160,7 +161,12 @@
       <div class="row"><span>corner credit</span><span id="train-credit">--</span></div>
       <div class="row"><span>population</span><span id="train-mean">--</span></div>
       <canvas id="fitness-spark" width="240" height="44"></canvas>
-      <button id="replay" type="button">replay best</button>
+      <label for="replay-which">watch</label>
+      <select id="replay-which">
+        <option value="best">elite — best ever found</option>
+        <option value="mean">search centre — where the population is</option>
+      </select>
+      <button id="replay" type="button">replay it</button>
       <div class="row"><span id="replay-gen">no run in progress</span></div>
       <div class="warn" id="train-warn"></div>
     </section>

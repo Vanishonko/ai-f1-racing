@@ -265,7 +265,16 @@ const writeStatus = (
       warning,
       // The elite, so the viewer can drive it.
       parameterCount: PARAMETER_COUNT,
+      /*
+       * BOTH the elite and the search centre.
+       *
+       * The elite is the best ever found; the centre is where the population actually is. When a run
+       * stops improving they diverge, and the centre is the one that answers "is it still trying?" —
+       * a centre that looks nothing like the elite is exploring, and a centre that looks like a worse
+       * copy of it is stuck.
+       */
       genes: Array.from(state.best),
+      meanGenes: Array.from(state.mean),
     }),
   );
 };

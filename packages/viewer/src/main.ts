@@ -25,7 +25,13 @@ import {
   type StepContext,
 } from "../../engine/src/car.ts";
 import { buildCircuitByKey, CIRCUITS, DEFAULT_TRACK_KEY } from "../../engine/src/trackLibrary.ts";
-import { projectToTrack, projectToTrackNear, pointAtDistance, type Track } from "../../engine/src/track.ts";
+import {
+  projectToTrack,
+  projectToTrackNear,
+  pointAtDistance,
+  cornerCheckpoints,
+  type Track,
+} from "../../engine/src/track.ts";
 import { createTiming, updateTiming, formatTime } from "../../engine/src/timing.ts";
 import { gripNoiseAt } from "../../engine/src/rng.ts";
 import { createDriver, drive, PARAMETER_COUNT, type Driver } from "../../engine/src/driver.ts";
@@ -437,7 +443,10 @@ interface TrainingStatus {
   eliteCheckpointCredit?: number;
   eliteCheckpointCount?: number;
   warning: string;
+  /** The best parameters ever found. */
   genes: number[];
+  /** The search centre: where the population actually is, which is what "is it still trying" means. */
+  meanGenes?: number[];
 }
 
 let trainingStatus: TrainingStatus | null = null;
@@ -525,10 +534,25 @@ const replayLatestElite = (): void => {
     if (label) label.textContent = "no run in progress";
     return;
   }
-  driver = createDriver(Float64Array.from(status.genes), () => 0);
+
+  /*
+   * WHICH DRIVER TO WATCH IS THE QUESTION THE REPLAY EXISTS TO ANSWER.
+   *
+   * The elite is the best ever found; the centre is where the population actually is. While a run is
+   * improving they are close. When it stops improving they diverge, and only the centre answers
+   * whether the search is still trying — a centre unlike the elite is exploring, and a centre like a
+   * worse copy of it is stuck.
+   */
+  const which = (document.getElementById("replay-which") as HTMLSelectElement | null)?.value ?? "best";
+  const genes = which === "mean" ? status.meanGenes : status.genes;
+  if (!Array.isArray(genes) || genes.length !== PARAMETER_COUNT) {
+    if (label) label.textContent = `no ${which} parameters in the status file`;
+    return;
+  }
+  driver = createDriver(Float64Array.from(genes), () => 0);
   driverInfo = {
-    generation: status.bestGeneration,
-    fitness: status.bestFitness,
+    generation: which === "mean" ? status.generation : status.bestGeneration,
+    fitness: which === "mean" ? status.currentFitness : status.bestFitness,
     trainedSeconds: 0,
     circuit: status.circuit,
   };
@@ -583,7 +607,11 @@ const updateTrainingPanel = (): void => {
   );
   field("train-warn", t.warning ? `WARNING: ${t.warning}` : "");
   const replay = document.getElementById("replay-gen");
-  if (replay) replay.textContent = `replay generation ${t.bestGeneration}`;
+  if (replay) {
+    replay.textContent =
+      `elite gen ${t.bestGeneration} (${t.bestFitness.toFixed(0)})  |  ` +
+      `centre gen ${t.generation} (${t.currentFitness.toFixed(0)})`;
+  }
   drawFitnessSpark();
 };
 
@@ -990,6 +1018,72 @@ const REDRAW = {
   line: "#6f7883",
   grass: "#101512",
   sky: "#0b0d10",
+};
+
+/**
+ * Checkpoint positions for the current circuit, computed once per circuit.
+ *
+ * These are the places the reward is measured — entry, apex and exit of every corner. Drawing them
+ * turns "corner credit 24.9 of 43" from a number into something you can watch the car earn, and makes
+ * it obvious at a glance which corners are being taken well and which are being thrown away.
+ */
+let checkpointDistances: number[] = [];
+let checkpointCacheKey = "";
+
+const refreshCheckpoints = (): void => {
+  if (checkpointCacheKey === track.key) return;
+  checkpointCacheKey = track.key;
+  checkpointDistances = cornerCheckpoints(track);
+};
+
+/**
+ * Draws the checkpoints, and marks the one the car is currently approaching.
+ *
+ * The next checkpoint is highlighted because that is the one being paid for right now: the reward
+ * samples the speed over the approach, so the interesting question at any moment is how fast the car
+ * is arriving at the one ahead.
+ */
+const nextCheckpointFrom = (distance: number): number | null => {
+  if (checkpointDistances.length === 0) return null;
+  for (const at of checkpointDistances) {
+    if (at > distance) return at;
+  }
+  return checkpointDistances[0] ?? null;
+};
+
+const drawCheckpoints = (): void => {
+  refreshCheckpoints();
+  if (checkpointDistances.length === 0) return;
+  const next = nextCheckpointFrom(car.distance);
+
+  for (const at of checkpointDistances) {
+    const point = pointAtDistance(track, at);
+    const cos = 1;
+    const sin = 0;
+    void cos;
+    void sin;
+    // A short bar across the circuit, from one edge to the other.
+    const nx = -point.ty;
+    const ny = point.tx;
+    const inner = track.halfWidth - 0.5;
+    const a = toScreenX(point.x - nx * inner, point.y - ny * inner);
+    const b = toScreenY(point.x - nx * inner, point.y - ny * inner);
+    const c = toScreenX(point.x + nx * inner, point.y + ny * inner);
+    const d = toScreenY(point.x + nx * inner, point.y + ny * inner);
+
+    /*
+     * Wide enough to see at any zoom. A bar scaled purely by `camera.scale` vanishes in the overview,
+     * where the scale is around one pixel per metre — which is how the first version of this shipped
+     * invisible, showing a single purple pixel on the whole canvas.
+     */
+    const isNext = next !== null && Math.abs(at - next) < 1e-9;
+    ctx.strokeStyle = isNext ? "#3ddc84" : "rgba(181, 123, 255, 0.85)";
+    ctx.lineWidth = isNext ? Math.max(3, 0.5 * camera.scale) : Math.max(2, 0.25 * camera.scale);
+    ctx.beginPath();
+    ctx.moveTo(a, b);
+    ctx.lineTo(c, d);
+    ctx.stroke();
+  }
 };
 
 const drawTrack = (): void => {
@@ -1638,6 +1732,7 @@ const frame = (now: number): void => {
   ctx.fillStyle = REDRAW.sky;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   drawTrack();
+  if ((document.getElementById("checkpoints") as HTMLInputElement | null)?.checked) drawCheckpoints();
   drawTrail();
   drawSmoke();
   if ((document.getElementById("rays") as HTMLInputElement).checked) drawGripRings();
