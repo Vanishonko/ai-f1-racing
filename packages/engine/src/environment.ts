@@ -168,10 +168,42 @@ export interface RewardLadder {
   annealGenerations: number;
 }
 
+/**
+ * The three rewards, sized so their ORDER expresses what racing is.
+ *
+ * MEASURED BEFORE THESE NUMBERS WERE CHOSEN, on scripted runs that actually drive, with the old weights
+ * of 4000 per lap and 900 per checkpoint:
+ *
+ *   on-track 64%   distance 1114 m   distance reward 111   POINTS FROM CHECKPOINTS 3924
+ *
+ * Checkpoints outweighed distance by a factor of thirty-five while the driver was off the circuit for
+ * a third of the run. That is the wrong ordering twice over: it says that scraping past a corner is
+ * worth more than driving, and it says that a driver spending a third of its time on the grass is
+ * doing well. The suspicion that the on-track punishment was too weak was correct.
+ *
+ * The ladder is now an ORDER rather than a set of numbers: a lap is worth ten checkpoints, a checkpoint
+ * is worth a few hundred metres, and distance is a steady floor underneath both that is never gated,
+ * so a car which has not yet learned to move still has something to climb.
+ */
 export const DEFAULT_LADDER: RewardLadder = {
-  lapReward: 4000,
-  checkpointReward: 900,
-  annealGenerations: 300,
+  /** A completed lap, gated on staying on the circuit. The objective. */
+  lapReward: 5000,
+  /** Passing a corner well, scaled by the speed carried. Worth a tenth of a lap. */
+  checkpointReward: 500,
+  /**
+   * Generations over which checkpoint credit fades and lap credit grows.
+   *
+   * THE ANNEAL MUST OUTLAST THE LEARNING, and an earlier setting of a hundred and fifty did not. By
+   * that generation a randomly-initialised population still cannot complete a lap — measured, a
+   * scripted driver that steers properly manages a thousand to seventeen hundred metres of a
+   * thirty-five hundred metre circuit — so the only reward still standing was the lap, which nobody
+   * could reach, and distance. The search was left with no signal from the corners at exactly the
+   * point it needed one.
+   *
+   * Checkpoints fading is right, because they are farmable. Checkpoints fading BEFORE anything can
+   * complete a lap is a schedule that guarantees the search has nothing to climb.
+   */
+  annealGenerations: 400,
 };
 
 export interface RunOptions {
@@ -234,6 +266,8 @@ export interface RunResult {
   topSpeed: number;
   /** Checkpoints passed in the correct order. */
   checkpointsPassed: number;
+  /** The ungated distance reward, reported separately so it can be seen not to dominate. */
+  distanceReward: number;
   /**
    * Checkpoint credit earned, as a sum of fractions of each checkpoint's grip-limited speed.
    *
@@ -336,6 +370,23 @@ const FITNESS_WEIGHTS = {
    * makes the floor itself the thing to climb.
    */
   onTrackWeight: 3,
+
+  /*
+   * A STEADY, ALWAYS-GROWING REWARD FOR GROUND COVERED.
+   *
+   * The other three terms are all gated by the on-track fraction, which is right — a lap cut across
+   * the infield is not a lap — but it left the search with NO gradient at all in the state every
+   * driver starts in. Measured: with the gate multiplying everything, a car that had not yet learned
+   * to move scored exactly 0.0 for the speed term, so the very first thing to learn — press the
+   * throttle — had nothing pointing towards it. A driver that cannot move cannot reach a checkpoint
+   * either, so all four terms were simultaneously zero and the landscape was flat.
+   *
+   * Distance is therefore NOT gated, deliberately. Ten metres of grass is worth more than ten metres
+   * of nothing, and the reward for it is small enough that it can never compete with a checkpoint or a
+   * lap: about four hundred points for a whole ninety-second run against nine hundred for a single
+   * corner and four thousand for a lap. It is a floor under the gradient, not a strategy.
+   */
+  distanceReward: 1.0,
 } as const;
 
 /**
@@ -591,7 +642,15 @@ export const runPolicy = (
    * The gate is smooth and always increasing, so a driver that is off the circuit can always
    * improve by coming back towards it. See `onTrackWeight` for why a floor was worse than useless.
    */
-  const gate = w.onTrackWeight * onTrackFraction * onTrackFraction;
+  /*
+   * CUBED, not squared. The gate has to make going off the circuit genuinely expensive rather than
+   * merely unrewarding, and squaring was too forgiving: measured, a driver off the circuit for
+   * forty-four per cent of a run still took ninety-four per cent of the available credit. Cubed takes
+   * that to fifty-three per cent, while a driver on the circuit for ninety per cent of the time keeps
+   * seventy-three per cent instead of eighty-one — a real cost for real excursions, and no penalty
+   * worth noticing for a clean lap.
+   */
+  const gate = w.onTrackWeight * onTrackFraction * onTrackFraction * onTrackFraction;
   const averageSpeed = seconds > 0 ? distance / seconds : 0;
   // Steering work per metre covered, so a longer run does not pay more for the same habit.
   const steeringWorkPerMetre = distance > 1 ? (steeringWork / distance) * 100 : 0;
@@ -605,6 +664,11 @@ export const runPolicy = (
    * across the infield does not score.
    */
   const lapReward = (options.lapReward ?? 0) * laps * gate;
+  /*
+   * Ungated, and the only term that is. See `distanceReward` for why: it exists to give a car that has
+   * not learned to move yet something to climb, and it is far too small to be worth farming.
+   */
+  const distanceTerm = distance * w.distanceReward;
 
   /*
    * Checkpoint credit is the speed actually carried, as a fraction of what the car could have
@@ -633,6 +697,7 @@ export const runPolicy = (
   }
   const checkpointReward = (options.checkpointReward ?? 0) * checkpointCredit;
   const fitness =
+    distanceTerm +
     lapReward +
     checkpointReward +
     averageSpeed * w.perMetrePerSecond * gate +
@@ -653,6 +718,7 @@ export const runPolicy = (
     averageSpeed,
     topSpeed,
     checkpointsPassed,
+    distanceReward: distanceTerm,
     checkpointCredit: checkpointCreditSum,
     checkpointBestFraction: checkpointBestFraction,
     checkpointCount,
