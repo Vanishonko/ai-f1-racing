@@ -503,29 +503,25 @@ export const trainGeneration = async (
   }
 
   /*
-   * RESTART FROM THE ELITE WHEN THE SEARCH HAS LOST ITS WAY.
+   * THE ELITE RESET IS GONE, and getting rid of it is the fix rather than a simplification.
    *
-   * Diagnosed from a training curve, and it was the whole reason a thirteen-hour run produced
-   * nothing. The centre's fitness peaked at generation six and then DECAYED — 1047, then 562, then
-   * 8 — while the elite stayed put because elitism keeps a copy. The search had walked into a bad
-   * region with no way back: a rank-normalised update is equally content to march deeper into a
-   * basin as out of it.
+   * It was added because a run's centre once decayed from 1047 to 8 while elitism held the elite, so
+   * the search appeared to walk into a worse region and stay there. Snapping the centre back onto the
+   * elite when that happened seemed obviously right.
    *
-   * The measurement that proved it: taking the stuck centre and applying forty ordinary
-   * perturbations, THIRTEEN of them scored better. Better parameters were all around it and its own
-   * updates could not find them.
+   * IT MADE THE SEARCH INCAPABLE OF MOVING AT ALL, and the mechanism is easy to state once seen. The
+   * reset fires whenever the centre scores worse than the elite — which is ALWAYS, because the elite
+   * is by definition the best sample ever drawn. So the sequence each generation was: take an Adam
+   * step, then throw it away and teleport back to the elite. Measured, the Euclidean distance between
+   * the centre and the elite across all 675 parameters was 0.000, for hundreds of consecutive
+   * generations, twice, in runs that otherwise looked like they were training.
    *
-   * So when the centre has fallen behind the elite, it is SNAPPED ONTO THE ELITE and the next
-   * generation explores from there. A first attempt at this pulled the centre halfway back every
-   * generation instead, which is a different thing entirely and much worse: a continuous pull
-   * drags every sample towards one point, so the population loses its variation and the ranking
-   * stops carrying information. Measured with the pull, the centre's fitness went to zero within
-   * four generations and never recovered. A reset happens once and leaves the next generation free
-   * to spread out again.
+   * The decay it was written to prevent is real, but a perturbation-based search ALREADY handles it:
+   * if the elite is better than the centre, the gradient points towards it and the centre converges
+   * there over many generations, keeping the exploration that a population exists to provide. A reset
+   * does not accelerate that convergence, it forbids exploration entirely. Elitism records the best
+   * found so it can be restored at the end; it is not supposed to be the search's only position.
    */
-  if (current.fitness < state.bestFitness) {
-    state.mean.set(state.best);
-  }
 
   const total = samples * 2;
   return {
