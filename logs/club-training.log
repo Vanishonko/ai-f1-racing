@@ -1,4 +1,4 @@
-resuming from generation 1049, whose recorded fitness was 114
+resuming from generation 1051, whose recorded fitness was 114
 training on Club Circuit (3521 m)
 32 perturbations per generation, 90 s per evaluation, seed 1
 675 parameters, 3h 00m 00s budget
@@ -6,10 +6,8 @@ checkpointing to /Users/vanish/Documents/ai f1/checkpoints/club.json
 
 evaluating across 7 worker threads
 gen      best (m/s)   mean dist   on track    elapsed
-  WARNING after generation 1051: the search centre (41) has fallen far below its best (114); it has wandered into a worse region
-  WARNING after generation 1053: the search centre (49) has fallen far below its best (114); it has wandered into a worse region
-  WARNING after generation 1055: the search centre (4) has fallen far below its best (114); it has wandered into a worse region
-  WARNING after generation 1059: the search centre (1) has fallen far below its best (114); it has wandered into a worse region
-  WARNING after generation 1063: the search centre (26) has fallen far below its best (114); it has wandered into a worse region
-  WARNING after generation 1065: the search centre (27) has fallen far below its best (114); it has wandered into a worse region
-  WARNING after generation 1067: the search centre (24) has fallen far below its best (114); it has wandered into a worse region
+  WARNING after generation 1053: the search centre (41) has fallen far below its best (114); it has wandered into a worse region
+  WARNING after generation 1055: the search centre (49) has fallen far below its best (114); it has wandered into a worse region
+  WARNING after generation 1057: the search centre (4) has fallen far below its best (114); it has wandered into a worse region
+  WARNING after generation 1061: the search centre (1) has fallen far below its best (114); it has wandered into a worse region
+  WARNING after generation 1065: the search centre (26) has fallen far below its best (114); it has wandered into a worse region

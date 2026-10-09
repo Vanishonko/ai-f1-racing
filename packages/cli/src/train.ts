@@ -365,9 +365,17 @@ const main = async (): Promise<void> => {
    * what produced a panel reading 321 km/h for a driver averaging 108. This is refreshed whenever a
    * new best is found, and carried forward otherwise.
    */
-  const measureElite = (): ReturnType<typeof runDriver> =>
-    runDriver(bestDriver(state), track, { seconds: options.seconds });
-  let eliteResult = measureElite();
+  /*
+   * The elite's metrics are the ones the training loop already measured when it verified the elite.
+   * Re-running it here would need the run's options guessed, and guessing is what produced a panel
+   * reporting "corner credit 0 of 0" for a run with forty-three checkpoints.
+   */
+  let eliteResult: {
+    averageSpeed: number;
+    topSpeed: number;
+    checkpointCredit: number;
+    checkpointCount: number;
+  } | null = null;
 
   /*
    * A long run has to survive being stopped. Ctrl-C saves before exiting, so an overnight run
@@ -388,7 +396,7 @@ const main = async (): Promise<void> => {
       best = report.bestEverFitness;
       saveCheckpoint(checkpointPath, options, state.bestGeneration, best, state.best);
       // Measured on the same length of run the search is scored on, so the two are comparable.
-      eliteResult = measureElite();
+      eliteResult = state.bestResult;
       if (options.quiet) {
         say(`  new best ${best.toFixed(1)} m/s at generation ${state.bestGeneration}, saved`);
       }
@@ -416,10 +424,10 @@ const main = async (): Promise<void> => {
         state,
         report,
         {
-          averageSpeed: eliteResult.averageSpeed,
-          topSpeed: eliteResult.topSpeed,
-          checkpointCredit: eliteResult.checkpointCredit,
-          checkpointCount: eliteResult.checkpointCount,
+          averageSpeed: eliteResult?.averageSpeed ?? 0,
+          topSpeed: eliteResult?.topSpeed ?? 0,
+          checkpointCredit: eliteResult?.checkpointCredit ?? 0,
+          checkpointCount: eliteResult?.checkpointCount ?? 0,
         },
         health.warning,
         elapsedSeconds / Math.max(1, generations),

@@ -159,6 +159,16 @@ export interface TrainerState {
    * vector AND to the objective it was measured against.
    */
   bestOptions: RunOptions | null;
+  /**
+   * The elite's full measured result, from the run that confirmed it.
+   *
+   * Recorded here rather than re-measured by the caller, because a caller re-running the elite has to
+   * guess the options it was trained under — and guessing produced a panel reading "corner credit 0 of
+   * 0" for a run that had forty-three checkpoints, simply because the default options have no
+   * checkpoints in them. The training loop already scores the elite to verify it, so the numbers are
+   * free at that moment and meaningless at any other.
+   */
+  bestResult: RunResult | null;
   bestGeneration: number;
   /** Adam moments. */
   moment1: Float64Array;
@@ -251,6 +261,7 @@ export const createTrainer = (
      */
     bestFitness: -Infinity,
     bestOptions: null,
+    bestResult: null,
     bestGeneration: 0,
     moment1: new Float64Array(PARAMETER_COUNT),
     moment2: new Float64Array(PARAMETER_COUNT),
@@ -438,9 +449,11 @@ export const trainGeneration = async (
   state.generation = step;
   if (current.fitness > state.bestFitness) {
     state.best.set(scoredMean);
-    state.bestFitness = score(state.best, track, options).fitness;
+    const verified = score(state.best, track, options);
+    state.bestFitness = verified.fitness;
     // The objective it was measured against travels with the score; see `bestOptions`.
     state.bestOptions = options;
+    state.bestResult = verified;
     state.bestGeneration = step;
   }
   /*
@@ -454,9 +467,11 @@ export const trainGeneration = async (
     state.best.set(variants[bestIndex]!);
     // Confirm with an isolated evaluation, so the recorded number always belongs to the
     // recorded vector.
-    state.bestFitness = score(state.best, track, options).fitness;
+    const verified = score(state.best, track, options);
+    state.bestFitness = verified.fitness;
     // The objective it was measured against travels with the score; see `bestOptions`.
     state.bestOptions = options;
+    state.bestResult = verified;
     state.bestGeneration = step;
   }
 
