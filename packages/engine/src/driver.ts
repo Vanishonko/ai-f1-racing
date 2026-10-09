@@ -86,25 +86,45 @@ export interface Driver {
   intent: Controls;
   /** What the car actually receives, after the actuator limit. */
   applied: Controls;
+  /**
+   * Steering rate, in units of full lock per second.
+   *
+   * Carried because the steering is a second-order system: the rate is half its state. Anything that
+   * resets a car must clear this too, or the wheel carries on turning from a motion the car no longer
+   * has.
+   */
+  steerRate: number;
 }
 
 /**
- * How fast a control can physically move, as a fraction of full travel per second.
+ * The steering system, as a second-order response rather than a speed limit.
  *
- * MEASURED AGAINST WHAT THE NETWORK WAS DOING. Left raw, the controls are a twitching mess: at
- * 60 Hz the commanded steering changed by an average of 0.83 per tick with a largest single
- * change of 2.0 — the full range, both directions — and it reversed direction 2,548 times in sixty
- * seconds. The throttle slammed between zero and one while the brake was never touched at all.
+ * A RATE LIMIT IS NOT ENOUGH, and believing it was cost real time. With steering capped at a speed,
+ * the search simply SATURATES the cap: measured, the commanded steering changed by 0.025 per tick
+ * against a limit of 0.0267 — pinned to the maximum, continuously — with 692 direction reversals in
+ * ninety seconds and a peak body slip angle of EIGHTY-EIGHT DEGREES. The car was not being driven, it
+ * was being shaken.
  *
- * That is not driving, it is noise, and it is self-inflicted: a network with no memory and no
- * smoothing reacts to each observation as though it were the first, so any jitter in the
- * observation becomes jitter in the controls, amplified. Real hands and feet cannot move that
- * fast, and a real car would simply be upset by it.
+ * The missing physics is that a steering system has INERTIA and DAMPING, not merely a maximum speed.
+ * A hand on a wheel cannot reverse a moving mass instantly, however hard it tries, and that is
+ * exactly the constraint that stops a controller twitching. Modelling it as a rate limit allowed
+ * arbitrarily violent reversals as long as each one was quick enough.
  *
- * These rates are what a person can actually do: a little over a full sweep of the wheel per
- * second, and a pedal to the floor in about a fifth of a second.
+ * So the steering angle now follows the command through a damped second-order system, at a frequency
+ * a person can drive a wheel at and a damping ratio near critical so it settles without ringing. The
+ * practical effect is that a reversal takes time proportionate to how far it is reversing, which is
+ * what a real wheel does.
  */
-const STEER_RATE_LIMIT = 1.6;
+const STEER_FREQUENCY = 9.0;
+const STEER_DAMPING = 0.9;
+
+/**
+ * How fast the pedals move, as a fraction of full travel per second.
+ *
+ * Pedals genuinely are close to rate-limited: a foot travels a fixed distance in a fixed time and has
+ * little inertia to speak of. Measured, the throttle now changes by about 0.06 per tick against a
+ * limit of 0.10, so unlike the steering it is not pinned to the cap.
+ */
 const PEDAL_RATE_LIMIT = 6.0;
 
 /**
@@ -129,7 +149,28 @@ const approach = (current: number, target: number, maxDelta: number): number => 
 export const smoothControls = (driver: Driver, dt: number): void => {
   const applied = driver.applied;
   const intent = driver.intent;
-  applied.steer = approach(applied.steer, intent.steer, STEER_RATE_LIMIT * dt);
+
+  /*
+   * Steering: a damped spring towards the commanded angle.
+   *
+   * Integrated semi-implicitly, which is stable at this timestep and needs no matrix exponential.
+   * The state carried between steps is the steering RATE, so an interruption — a reset, a rewind —
+   * must clear it, or the wheel keeps turning after the car has been put back on the line.
+   */
+  const acceleration =
+    STEER_FREQUENCY * STEER_FREQUENCY * (intent.steer - applied.steer) -
+    2 * STEER_DAMPING * STEER_FREQUENCY * driver.steerRate;
+  driver.steerRate += acceleration * dt;
+  applied.steer += driver.steerRate * dt;
+  // A hard stop at full lock, because the wheel does not keep turning past it.
+  if (applied.steer > 1) {
+    applied.steer = 1;
+    if (driver.steerRate > 0) driver.steerRate = 0;
+  } else if (applied.steer < -1) {
+    applied.steer = -1;
+    if (driver.steerRate < 0) driver.steerRate = 0;
+  }
+
   applied.throttle = approach(applied.throttle, intent.throttle, PEDAL_RATE_LIMIT * dt);
   applied.brake = approach(applied.brake, intent.brake, PEDAL_RATE_LIMIT * dt);
 };
@@ -147,6 +188,7 @@ export const createDriver = (genes?: Float64Array, random?: () => number): Drive
     outputs: new Float64Array(OUTPUT_SIZE),
     intent: { throttle: 0, brake: 0, steer: 0 },
     applied: { throttle: 0, brake: 0, steer: 0 },
+    steerRate: 0,
   };
 };
 

@@ -199,6 +199,12 @@ const resetDriverState = (): void => {
   driver.intent.throttle = 0;
   driver.intent.brake = 0;
   driver.intent.steer = 0;
+  /*
+   * The steering RATE as well, because the steering is a second-order system and the rate is half its
+   * state. Left behind, a rewound or reset car carries the wheel's previous motion and keeps turning
+   * from a movement it no longer has.
+   */
+  driver.steerRate = 0;
 };
 
 /**
@@ -1574,6 +1580,7 @@ let stepsQueued = 0;
 interface RewindSnapshot {
   car: Record<string, unknown>;
   applied: { throttle: number; brake: number; steer: number };
+  steerRate: number;
   observation: ReturnType<typeof createObservation>;
 }
 let rewindSnapshot: RewindSnapshot | null = null;
@@ -1587,6 +1594,7 @@ const captureRewindSnapshot = (): void => {
   rewindSnapshot = {
     car: copy,
     applied: { ...(driver ? driver.applied : aiControls) },
+    steerRate: driver ? driver.steerRate : 0,
     observation: { ...observation },
   };
 };
@@ -1602,6 +1610,7 @@ const restoreRewindSnapshot = (): void => {
   controls.throttle = snapshot.applied.throttle;
   controls.brake = snapshot.applied.brake;
   controls.steer = snapshot.applied.steer;
+  if (driver) driver.steerRate = snapshot.steerRate;
   Object.assign(observation, snapshot.observation);
 
   trail.length = 0;

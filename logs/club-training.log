@@ -1,44 +1,27 @@
-resuming from generation 1173, whose recorded fitness was 114
+resuming from generation 1412, whose recorded fitness was 115
 training on Club Circuit (3521 m)
 32 perturbations per generation, 90 s per evaluation, seed 1
-675 parameters, 2h 54m 00s budget
+675 parameters, 2h 48m 00s budget
 checkpointing to /Users/vanish/Documents/ai f1/checkpoints/club.json
 
 evaluating across 7 worker threads
 gen      best (m/s)   mean dist   on track    elapsed
-  WARNING after generation 1175: the search centre (23) has fallen far below its best (114); it has wandered into a worse region
-  WARNING after generation 1177: the search centre (12) has fallen far below its best (114); it has wandered into a worse region
-  WARNING after generation 1179: the search centre (7) has fallen far below its best (114); it has wandered into a worse region
-  WARNING after generation 1185: the search centre (45) has fallen far below its best (114); it has wandered into a worse region
-  WARNING after generation 1197: the search centre (24) has fallen far below its best (114); it has wandered into a worse region
-1200        114.0         1770        86%    0h 01m 05s
-  WARNING after generation 1201: the search centre (3) has fallen far below its best (114); it has wandered into a worse region
-  WARNING after generation 1203: the search centre (38) has fallen far below its best (114); it has wandered into a worse region
-  WARNING after generation 1207: the search centre (25) has fallen far below its best (114); it has wandered into a worse region
-  WARNING after generation 1225: the search centre (2) has fallen far below its best (114); it has wandered into a worse region
-  WARNING after generation 1231: the search centre (28) has fallen far below its best (114); it has wandered into a worse region
-  WARNING after generation 1241: the search centre (46) has fallen far below its best (114); it has wandered into a worse region
-  WARNING after generation 1243: the search centre (40) has fallen far below its best (114); it has wandered into a worse region
-  WARNING after generation 1247: the search centre (43) has fallen far below its best (114); it has wandered into a worse region
-  WARNING after generation 1251: the search centre (42) has fallen far below its best (114); it has wandered into a worse region
-  WARNING after generation 1253: the search centre (3) has fallen far below its best (114); it has wandered into a worse region
-  WARNING after generation 1257: the search centre (40) has fallen far below its best (114); it has wandered into a worse region
-  WARNING after generation 1277: the search centre (27) has fallen far below its best (114); it has wandered into a worse region
-  WARNING after generation 1279: the search centre (46) has fallen far below its best (114); it has wandered into a worse region
-  WARNING after generation 1293: the search centre (2) has fallen far below its best (114); it has wandered into a worse region
-1300        114.0         1790        87%    0h 05m 09s
-  WARNING after generation 1301: the search centre (4) has fallen far below its best (114); it has wandered into a worse region
-  WARNING after generation 1324: no improvement for 150 generations; the search is either finished or stuck
-  WARNING after generation 1331: the search centre (5) has fallen far below its best (115); it has wandered into a worse region
-  WARNING after generation 1333: the search centre (3) has fallen far below its best (115); it has wandered into a worse region
-  WARNING after generation 1335: the search centre (4) has fallen far below its best (115); it has wandered into a worse region
-  WARNING after generation 1337: the search centre (37) has fallen far below its best (115); it has wandered into a worse region
-  WARNING after generation 1381: the search centre (27) has fallen far below its best (115); it has wandered into a worse region
-  WARNING after generation 1383: the search centre (45) has fallen far below its best (115); it has wandered into a worse region
-  WARNING after generation 1395: the search centre (39) has fallen far below its best (115); it has wandered into a worse region
-  WARNING after generation 1399: the search centre (45) has fallen far below its best (115); it has wandered into a worse region
-1400        114.6         1831        88%    0h 09m 09s
-  WARNING after generation 1414: the search centre (23) has fallen far below its best (115); it has wandered into a worse region
-  WARNING after generation 1418: the search centre (42) has fallen far below its best (115); it has wandered into a worse region
-  WARNING after generation 1428: the search centre (38) has fallen far below its best (115); it has wandered into a worse region
-  WARNING after generation 1432: the search centre (39) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1414: the search centre (3) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1418: the search centre (1) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1420: the search centre (2) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1422: the search centre (2) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1428: the search centre (42) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1438: the search centre (43) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1452: the search centre (40) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1454: the search centre (39) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1466: the search centre (5) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1468: the search centre (37) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1470: the search centre (44) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1472: the search centre (5) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1474: the search centre (38) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1476: the search centre (43) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1478: the search centre (46) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1500: the search centre (1) has fallen far below its best (115); it has wandered into a worse region
+1500        114.9         1753        87%    0h 03m 28s
+  WARNING after generation 1503: the search centre (38) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1519: the search centre (4) has fallen far below its best (115); it has wandered into a worse region
