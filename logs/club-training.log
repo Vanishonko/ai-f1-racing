@@ -25,3 +25,130 @@ gen      best (m/s)   mean dist   on track    elapsed
 1500        114.9         1753        87%    0h 03m 28s
   WARNING after generation 1503: the search centre (38) has fallen far below its best (115); it has wandered into a worse region
   WARNING after generation 1519: the search centre (4) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1537: the search centre (4) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1543: the search centre (5) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1547: the search centre (47) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1555: the search centre (43) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1571: the search centre (37) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1575: the search centre (41) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1585: the search centre (3) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1591: the search centre (48) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1595: the search centre (3) has fallen far below its best (115); it has wandered into a worse region
+1600        115.4         1816        87%    0h 07m 24s
+  WARNING after generation 1609: the search centre (44) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1619: the search centre (44) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1627: the search centre (39) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1633: the search centre (41) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1637: the search centre (39) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1639: the search centre (48) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1641: the search centre (42) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1647: the search centre (38) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1651: no improvement for 150 generations; the search is either finished or stuck
+  WARNING after generation 1652: no improvement for 151 generations; the search is either finished or stuck
+  WARNING after generation 1653: no improvement for 152 generations; the search is either finished or stuck
+  WARNING after generation 1654: no improvement for 153 generations; the search is either finished or stuck
+  WARNING after generation 1655: no improvement for 154 generations; the search is either finished or stuck
+  WARNING after generation 1656: no improvement for 155 generations; the search is either finished or stuck
+  WARNING after generation 1657: no improvement for 156 generations; the search is either finished or stuck
+  WARNING after generation 1658: no improvement for 157 generations; the search is either finished or stuck
+  WARNING after generation 1659: no improvement for 158 generations; the search is either finished or stuck
+  WARNING after generation 1660: no improvement for 159 generations; the search is either finished or stuck
+  WARNING after generation 1661: no improvement for 160 generations; the search is either finished or stuck
+  WARNING after generation 1662: no improvement for 161 generations; the search is either finished or stuck
+  WARNING after generation 1663: the search centre (38) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1664: no improvement for 163 generations; the search is either finished or stuck
+  WARNING after generation 1665: the search centre (39) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1666: no improvement for 165 generations; the search is either finished or stuck
+  WARNING after generation 1667: no improvement for 166 generations; the search is either finished or stuck
+  WARNING after generation 1668: no improvement for 167 generations; the search is either finished or stuck
+  WARNING after generation 1669: the search centre (3) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1670: no improvement for 169 generations; the search is either finished or stuck
+  WARNING after generation 1671: no improvement for 170 generations; the search is either finished or stuck
+  WARNING after generation 1672: no improvement for 171 generations; the search is either finished or stuck
+  WARNING after generation 1673: no improvement for 172 generations; the search is either finished or stuck
+  WARNING after generation 1674: no improvement for 173 generations; the search is either finished or stuck
+  WARNING after generation 1675: no improvement for 174 generations; the search is either finished or stuck
+  WARNING after generation 1676: no improvement for 175 generations; the search is either finished or stuck
+  WARNING after generation 1677: no improvement for 176 generations; the search is either finished or stuck
+  WARNING after generation 1678: no improvement for 177 generations; the search is either finished or stuck
+  WARNING after generation 1679: no improvement for 178 generations; the search is either finished or stuck
+  WARNING after generation 1680: no improvement for 179 generations; the search is either finished or stuck
+  WARNING after generation 1681: no improvement for 180 generations; the search is either finished or stuck
+  WARNING after generation 1682: no improvement for 181 generations; the search is either finished or stuck
+  WARNING after generation 1683: no improvement for 182 generations; the search is either finished or stuck
+  WARNING after generation 1684: no improvement for 183 generations; the search is either finished or stuck
+  WARNING after generation 1685: no improvement for 184 generations; the search is either finished or stuck
+  WARNING after generation 1686: no improvement for 185 generations; the search is either finished or stuck
+  WARNING after generation 1687: no improvement for 186 generations; the search is either finished or stuck
+  WARNING after generation 1688: no improvement for 187 generations; the search is either finished or stuck
+  WARNING after generation 1689: no improvement for 188 generations; the search is either finished or stuck
+  WARNING after generation 1690: no improvement for 189 generations; the search is either finished or stuck
+  WARNING after generation 1691: no improvement for 190 generations; the search is either finished or stuck
+  WARNING after generation 1692: no improvement for 191 generations; the search is either finished or stuck
+  WARNING after generation 1693: no improvement for 192 generations; the search is either finished or stuck
+  WARNING after generation 1694: no improvement for 193 generations; the search is either finished or stuck
+  WARNING after generation 1695: no improvement for 194 generations; the search is either finished or stuck
+  WARNING after generation 1696: no improvement for 195 generations; the search is either finished or stuck
+  WARNING after generation 1697: the search centre (38) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1698: no improvement for 197 generations; the search is either finished or stuck
+  WARNING after generation 1699: no improvement for 198 generations; the search is either finished or stuck
+  WARNING after generation 1700: no improvement for 199 generations; the search is either finished or stuck
+1700        115.4         1715        85%    0h 11m 19s
+  WARNING after generation 1701: the search centre (38) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1702: no improvement for 201 generations; the search is either finished or stuck
+  WARNING after generation 1703: no improvement for 202 generations; the search is either finished or stuck
+  WARNING after generation 1704: no improvement for 203 generations; the search is either finished or stuck
+  WARNING after generation 1705: no improvement for 204 generations; the search is either finished or stuck
+  WARNING after generation 1706: no improvement for 205 generations; the search is either finished or stuck
+  WARNING after generation 1707: no improvement for 206 generations; the search is either finished or stuck
+  WARNING after generation 1708: no improvement for 207 generations; the search is either finished or stuck
+  WARNING after generation 1709: no improvement for 208 generations; the search is either finished or stuck
+  WARNING after generation 1710: no improvement for 209 generations; the search is either finished or stuck
+  WARNING after generation 1711: no improvement for 210 generations; the search is either finished or stuck
+  WARNING after generation 1712: no improvement for 211 generations; the search is either finished or stuck
+  WARNING after generation 1713: no improvement for 212 generations; the search is either finished or stuck
+  WARNING after generation 1714: no improvement for 213 generations; the search is either finished or stuck
+  WARNING after generation 1715: no improvement for 214 generations; the search is either finished or stuck
+  WARNING after generation 1716: no improvement for 215 generations; the search is either finished or stuck
+  WARNING after generation 1717: no improvement for 216 generations; the search is either finished or stuck
+  WARNING after generation 1718: no improvement for 217 generations; the search is either finished or stuck
+  WARNING after generation 1719: no improvement for 218 generations; the search is either finished or stuck
+  WARNING after generation 1720: no improvement for 219 generations; the search is either finished or stuck
+  WARNING after generation 1721: no improvement for 220 generations; the search is either finished or stuck
+  WARNING after generation 1722: no improvement for 221 generations; the search is either finished or stuck
+  WARNING after generation 1723: no improvement for 222 generations; the search is either finished or stuck
+  WARNING after generation 1724: no improvement for 223 generations; the search is either finished or stuck
+  WARNING after generation 1725: no improvement for 224 generations; the search is either finished or stuck
+  WARNING after generation 1726: no improvement for 225 generations; the search is either finished or stuck
+  WARNING after generation 1727: the search centre (48) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1728: no improvement for 227 generations; the search is either finished or stuck
+  WARNING after generation 1729: the search centre (3) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1730: no improvement for 229 generations; the search is either finished or stuck
+  WARNING after generation 1731: the search centre (7) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1732: no improvement for 231 generations; the search is either finished or stuck
+  WARNING after generation 1733: no improvement for 232 generations; the search is either finished or stuck
+  WARNING after generation 1734: no improvement for 233 generations; the search is either finished or stuck
+  WARNING after generation 1735: no improvement for 234 generations; the search is either finished or stuck
+  WARNING after generation 1736: no improvement for 235 generations; the search is either finished or stuck
+  WARNING after generation 1737: the search centre (47) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1738: no improvement for 237 generations; the search is either finished or stuck
+  WARNING after generation 1739: the search centre (28) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1740: no improvement for 239 generations; the search is either finished or stuck
+  WARNING after generation 1741: the search centre (43) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1742: no improvement for 241 generations; the search is either finished or stuck
+  WARNING after generation 1743: no improvement for 242 generations; the search is either finished or stuck
+  WARNING after generation 1744: no improvement for 243 generations; the search is either finished or stuck
+  WARNING after generation 1745: no improvement for 244 generations; the search is either finished or stuck
+  WARNING after generation 1746: no improvement for 245 generations; the search is either finished or stuck
+  WARNING after generation 1747: no improvement for 246 generations; the search is either finished or stuck
+  WARNING after generation 1748: no improvement for 247 generations; the search is either finished or stuck
+  WARNING after generation 1749: no improvement for 248 generations; the search is either finished or stuck
+  WARNING after generation 1750: no improvement for 249 generations; the search is either finished or stuck
+  WARNING after generation 1751: no improvement for 250 generations; the search is either finished or stuck
+  WARNING after generation 1752: no improvement for 251 generations; the search is either finished or stuck
+  WARNING after generation 1753: no improvement for 252 generations; the search is either finished or stuck
+  WARNING after generation 1754: no improvement for 253 generations; the search is either finished or stuck
+  WARNING after generation 1755: the search centre (24) has fallen far below its best (115); it has wandered into a worse region
+  WARNING after generation 1756: no improvement for 255 generations; the search is either finished or stuck
+  WARNING after generation 1757: no improvement for 256 generations; the search is either finished or stuck
+  WARNING after generation 1758: no improvement for 257 generations; the search is either finished or stuck
