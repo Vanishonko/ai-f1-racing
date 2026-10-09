@@ -203,7 +203,7 @@ export const DEFAULT_LADDER: RewardLadder = {
    * Checkpoints fading is right, because they are farmable. Checkpoints fading BEFORE anything can
    * complete a lap is a schedule that guarantees the search has nothing to climb.
    */
-  annealGenerations: 400,
+  annealGenerations: 2500,
 };
 
 export interface RunOptions {
@@ -396,6 +396,14 @@ const FITNESS_WEIGHTS = {
   distanceReward: 1.0,
   /** The share of the distance reward available regardless of where the car is. */
   distanceUngatedShare: 0.2,
+  /**
+   * The average speed, in metres per second, at which a completed lap earns its full reward.
+   *
+   * About a hundred and thirty kilometres per hour, which is a competent lap of this circuit rather
+   * than a spectacular one — the point is that the top of the range should be reachable, and that a
+   * crawl round should not pay the same as a racing lap.
+   */
+  lapPaceReference: 36,
 } as const;
 
 /**
@@ -672,7 +680,23 @@ export const runPolicy = (
    * The ladder is gated by the same on-track factor as everything else, so a lap completed by cutting
    * across the infield does not score.
    */
-  const lapReward = (options.lapReward ?? 0) * laps * gate;
+  /*
+   * A COMPLETED LAP PAYS IN PROPORTION TO HOW FAST IT WAS.
+   *
+   * Without this the lap reward is a cliff: nothing at all until a driver can complete a lap, then
+   * five thousand. Measured, the consequence was a search that spent sixteen hundred generations
+   * unable to beat a record it had set before the cliff existed — the record was 9615 under an
+   * objective where checkpoints paid, and under the current objective the same parameters are worth
+   * 1174 because the lap it could not finish pays nothing.
+   *
+   * Scaling by pace turns the cliff into a slope. A laboured lap earns a fraction, a quick one earns
+   * full marks, and the gradient exists from the first lap anybody manages rather than from a
+   * generation chosen in advance. `lapPaceReference` is the speed at which a lap is judged complete
+   * value: set near the pace a competent driver reaches, so the top of the range is reachable and the
+   * bottom is not free.
+   */
+  const lapPace = Math.min(1, averageSpeed / w.lapPaceReference);
+  const lapReward = (options.lapReward ?? 0) * laps * gate * lapPace;
   /*
    * A ramp, not a gate and not a free pass. See `distanceReward`: the ungated share gives a car that
    * cannot yet drive something to climb, and the rest arrives as it learns to stay on the circuit, so

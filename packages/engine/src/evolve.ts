@@ -160,6 +160,14 @@ export interface TrainerState {
    */
   bestOptions: RunOptions | null;
   /**
+   * The ladder used to score and record the elite, fixed for the life of the run.
+   *
+   * Chosen once from the starting generation and never annealed, so the recorded best is always
+   * measured the same way. See the note in `trainGeneration` for the sixteen hundred generations
+   * that made this necessary.
+   */
+  recordLadder: { lapReward: number; checkpointReward: number };
+  /**
    * The elite's full measured result, from the run that confirmed it.
    *
    * Recorded here rather than re-measured by the caller, because a caller re-running the elite has to
@@ -252,6 +260,12 @@ export const createTrainer = (
 
   return {
     config: { ...DEFAULT_EVOLUTION, ...config },
+    /*
+     * Fixed at creation from the starting generation. A resumed run keeps the ladder its record was
+     * built on rather than starting a new one, so a checkpoint remains comparable with the run that
+     * produced it.
+     */
+    recordLadder: ladderFor(0),
     mean,
     best: mean.slice(),
     /*
@@ -350,7 +364,22 @@ export const trainGeneration = async (
    * The ladder is applied per generation, so the annealing is driven by how far the search has got
    * rather than by a wall clock — a run that is resumed continues its schedule.
    */
-  const ladder = ladderFor(state.generation + 1);
+  /*
+   * THE ELITE IS SCORED AND RECORDED UNDER A FIXED OBJECTIVE.
+   *
+   * The ladder anneals, which is right for the SAMPLES: early on, credit for reaching corners is the
+   * only signal available, and later it would be farmable. But if the record is kept on an annealed
+   * objective then the number changes underneath it — measured, an elite recorded at 9615 under
+   * generation 78's weights scored 1174 under generation 1759's, so the search spent sixteen hundred
+   * generations unable to reproduce a score it had already beaten and could not tell.
+   *
+   * The elite is therefore judged by a fixed yardstick for the whole run, chosen from the generation
+   * the trainer started at. That makes the recorded number comparable across a run of any length:
+   * if a new driver beats it, it is better, and the comparison means the same thing at generation ten
+   * and at generation ten thousand. The samples still anneal, because that shapes the search; the
+   * record does not, because it has to be a fact.
+   */
+  const ladder = state.recordLadder;
   const options: RunOptions = {
     ...runOptions,
     // Corner checkpoints: entry, apex and exit for every corner. See `cornerCheckpoints`.
@@ -476,10 +505,10 @@ export const trainGeneration = async (
   state.generation = step;
   if (current.fitness > state.bestFitness) {
     state.best.set(scoredMean);
-    const verified = score(state.best, track, options);
+    const verified = score(state.best, track, { ...options, ...state.recordLadder });
     state.bestFitness = verified.fitness;
     // The objective it was measured against travels with the score; see `bestOptions`.
-    state.bestOptions = options;
+    state.bestOptions = { ...options, ...state.recordLadder };
     state.bestResult = verified;
     state.bestGeneration = step;
   }
@@ -494,10 +523,10 @@ export const trainGeneration = async (
     state.best.set(variants[bestIndex]!);
     // Confirm with an isolated evaluation, so the recorded number always belongs to the
     // recorded vector.
-    const verified = score(state.best, track, options);
+    const verified = score(state.best, track, { ...options, ...state.recordLadder });
     state.bestFitness = verified.fitness;
     // The objective it was measured against travels with the score; see `bestOptions`.
-    state.bestOptions = options;
+    state.bestOptions = { ...options, ...state.recordLadder };
     state.bestResult = verified;
     state.bestGeneration = step;
   }
