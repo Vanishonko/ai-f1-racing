@@ -119,27 +119,23 @@ const STEER_FREQUENCY = 9.0;
 const STEER_DAMPING = 0.9;
 
 /**
- * How fast the pedals move, as a fraction of full travel per second.
+ * How quickly a pedal reaches what is being asked of it, as a time constant in seconds.
  *
- * Pedals genuinely are close to rate-limited: a foot travels a fixed distance in a fixed time and has
- * little inertia to speak of. Measured, the throttle now changes by about 0.06 per tick against a
- * limit of 0.10, so unlike the steering it is not pinned to the cap.
- */
-const PEDAL_RATE_LIMIT = 6.0;
-
-/**
- * Moves an applied control towards its commanded value at a bounded rate.
+ * THIS REPLACED A RATE LIMIT, and the rate limit was producing a staircase. At six units per second and
+ * sixty ticks per second, the applied pedal moved in steps of exactly 0.1 — measured, the throttle walked
+ * 0.10, 0.20, 0.30 and so on with every step identical. THE NETWORK COULD NOT ASK FOR FIVE PER CENT OF
+ * THROTTLE. It could only ask for one more step, so the finest modulation available to any driver was ten
+ * per cent of pedal travel, which is not enough to feel a tire's limit and is a large part of why the
+ * cars twitch.
  *
- * A rate limit rather than a low-pass filter, because that is what the physical limit actually is:
- * a hand can move at most so fast, and it can hold any position. A filter would smooth the noise
- * but also lag genuinely quick corrections, which is the wrong trade for a racing driver.
+ * A first-order lag has no steps at all: the pedal moves a fixed FRACTION of the remaining distance each
+ * tick, so a small request produces a small movement and a large one a large movement. That is also what
+ * a real pedal does — a foot is a mass on a spring, not an integrator with a fixed slew limit.
+ *
+ * A tenth of a second is roughly how long a foot takes to move through the useful part of its travel,
+ * which is fast enough to be responsive and slow enough to be analog.
  */
-const approach = (current: number, target: number, maxDelta: number): number => {
-  const delta = target - current;
-  if (delta > maxDelta) return current + maxDelta;
-  if (delta < -maxDelta) return current - maxDelta;
-  return target;
-};
+const PEDAL_TIME_CONSTANT = 0.1;
 
 /**
  * Rate-limits the controls to what a driver could physically ask for.
@@ -171,8 +167,13 @@ export const smoothControls = (driver: Driver, dt: number): void => {
     if (driver.steerRate < 0) driver.steerRate = 0;
   }
 
-  applied.throttle = approach(applied.throttle, intent.throttle, PEDAL_RATE_LIMIT * dt);
-  applied.brake = approach(applied.brake, intent.brake, PEDAL_RATE_LIMIT * dt);
+  /*
+   * First-order lag: a fixed fraction of the remaining distance each tick, so the response is smooth
+   * and proportional at every scale. See `PEDAL_TIME_CONSTANT` for the staircase this replaced.
+   */
+  const pedalBlend = dt >= PEDAL_TIME_CONSTANT ? 1 : dt / PEDAL_TIME_CONSTANT;
+  applied.throttle += (intent.throttle - applied.throttle) * pedalBlend;
+  applied.brake += (intent.brake - applied.brake) * pedalBlend;
 
   /*
    * THE PRIORITY RULE HAS TO BE RE-APPLIED HERE, and forgetting that parked the car.

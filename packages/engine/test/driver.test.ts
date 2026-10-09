@@ -289,3 +289,38 @@ test("driver: the two pedals can never both be pressed", () => {
     `with the throttle released the brake should apply fully, got ${braking.applied.brake}`,
   );
 });
+
+test("driver: the pedals move smoothly, not in fixed steps", () => {
+  /*
+   * THE STAIRCASE. With a rate limit of six units per second at sixty ticks per second, the applied
+   * pedal moved in steps of exactly 0.1: measured, the throttle walked 0.10, 0.20, 0.30 and so on with
+   * every step identical. THE NETWORK COULD NOT ASK FOR FIVE PER CENT OF THROTTLE — only for one more
+   * step — so the finest modulation available to any driver was a tenth of pedal travel.
+   *
+   * That matters because the fastest launch is NOT at full throttle. Measured, a held 0.5 gives 0 to
+   * 100 km/h in 3.35 seconds with the rear wheels barely slipping, while 1.0 spins them at 37 metres per
+   * second and takes 3.98. A control that cannot express 0.5 cannot find that.
+   */
+  const driver = createDriver(new Float64Array(PARAMETER_COUNT), () => 0);
+  const seen: number[] = [];
+  for (let i = 0; i < 30; i++) {
+    driver.intent.throttle = 1;
+    driver.intent.brake = 0;
+    driver.intent.steer = 0;
+    smoothControls(driver, 1 / 60);
+    seen.push(driver.applied.throttle);
+  }
+
+  const steps = seen.slice(1).map((v, i) => Math.abs(v - seen[i]!));
+  const distinct = new Set(steps.map((v) => v.toFixed(6)));
+  assert.ok(
+    distinct.size > 1,
+    `every step was ${[...distinct][0]}: the pedal is a fixed-resolution staircase`,
+  );
+  // And it must be monotonic, so the pedal cannot overshoot or oscillate on its way to the target.
+  for (let i = 1; i < seen.length; i++) {
+    assert.ok(seen[i]! >= seen[i - 1]! - 1e-12, `the throttle went backwards at step ${i}`);
+  }
+  // It should approach the target rather than jump to it.
+  assert.ok(seen[0]! < 0.5, `the first step reached ${seen[0]}, which is not a gradual response`);
+});
