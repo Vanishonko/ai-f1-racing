@@ -433,6 +433,9 @@ interface TrainingStatus {
   /** The elite's REAL measured speeds, in metres per second. */
   bestAverageSpeed: number;
   bestTopSpeed: number;
+  /** Speed carried through the corner checkpoints, and how many there are. */
+  eliteCheckpointCredit?: number;
+  eliteCheckpointCount?: number;
   warning: string;
   genes: number[];
 }
@@ -567,6 +570,17 @@ const updateTrainingPanel = (): void => {
     t.bestAverageSpeed ? `${kmh(t.bestAverageSpeed)} avg, ${kmh(t.bestTopSpeed)} peak` : "--",
   );
   field("train-mean", `${t.meanDistance.toFixed(0)} m, ${(t.meanOnTrack * 100).toFixed(0)}% on track`);
+  /*
+   * Corner credit, which is the number the ladder is really optimising: how much of the speed each
+   * corner physically allows is actually being carried. Shown next to pace because they answer
+   * different questions — pace says how fast the lap is, credit says how much is left in the corners.
+   */
+  field(
+    "train-credit",
+    t.eliteCheckpointCredit !== undefined && t.eliteCheckpointCount
+      ? `${t.eliteCheckpointCredit.toFixed(0)} / ${t.eliteCheckpointCount}`
+      : "--",
+  );
   field("train-warn", t.warning ? `WARNING: ${t.warning}` : "");
   const replay = document.getElementById("replay-gen");
   if (replay) replay.textContent = `replay generation ${t.bestGeneration}`;
@@ -1369,6 +1383,11 @@ const setupSplitter = (): void => {
    * THE CANVAS IS THE POINT, so the panel starts hidden and the whole window is the track. It is one
    * key away when the telemetry is wanted, and which of those you want is a preference worth
    * remembering.
+   */
+  /*
+   * THE CANVAS IS THE DEFAULT. The panel is one key away and its state is remembered, but a fresh
+   * browser gets the whole window for the track — the panel is a reference, and the driving is the
+   * thing being watched.
    */
   if (localStorage.getItem(HIDDEN_KEY) !== "false") document.body.classList.add("panel-hidden");
   setTimeout(resize, 0);

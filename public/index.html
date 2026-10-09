@@ -111,15 +111,30 @@
   <!-- Visible only while the panel is hidden, so there is always a way back and to the live run. -->
   <button id="panel-toggle" type="button" title="show the panel (H)">panel</button>
   <aside>
-    <h1>Circuit</h1>
-    <select id="trackSelect"></select>
-    <div>
+    <!--
+      Panel order follows the order questions get asked: where am I, how is the car, what is the
+      search doing, what did it just do. Controls and reference material last, because they are
+      read once and the numbers are read constantly.
+    -->
+    <section>
+      <h1>Circuit</h1>
+      <select id="trackSelect"></select>
+      <label><input type="checkbox" id="follow" checked> chase camera</label>
+      <label><input type="checkbox" id="rays" checked> grip rings (load + utilization)</label>
+      <label><input type="checkbox" id="ghost"> force vectors (per-tire, N)</label>
+      <label><input type="checkbox" id="smoke"> tire smoke</label>
+    </section>
+
+    <section>
+      <h1>Car</h1>
       <div class="big"><span id="speed">0</span><span class="unit"> km/h</span></div>
       <div class="row"><span>gear</span><span id="gear">1</span></div>
       <div class="row"><span>rpm</span><span id="rpm">0</span></div>
-    </div>
+      <div class="row"><span>playback</span><span id="playback">1x</span></div>
+    </section>
 
     <section>
+      <h1>Inputs</h1>
       <div class="row"><span>throttle</span><span id="thr-pct">0%</span></div>
       <div class="bar"><i id="thr"></i></div>
       <div class="row"><span>brake</span><span id="brk-pct">0%</span></div>
@@ -129,31 +144,38 @@
     </section>
 
     <section>
-      <div class="row"><span>axle load F / R</span><span id="load">—</span></div>
-      <div class="row"><span>grip used F / R</span><span id="grip">—</span></div>
+      <h1>Tires</h1>
+      <div class="row"><span>axle load F / R</span><span id="load">&mdash;</span></div>
+      <div class="row"><span>grip used F / R</span><span id="grip">&mdash;</span></div>
       <div class="row"><span>front lock</span><span id="lock">0.00 s</span></div>
       <div class="row"><span>wheelspin</span><span id="spin">0.00 s</span></div>
       <div class="row"><span>tire wear</span><span id="wear">0%</span></div>
+    </section>
 
-      <h2>Training</h2>
+    <section>
+      <h1>Training</h1>
       <div class="row"><span id="train-state">no run in progress</span></div>
       <div class="row"><span>generation</span><span id="train-gen">--</span></div>
       <div class="row"><span>best lap pace</span><span id="train-best">--</span></div>
+      <div class="row"><span>corner credit</span><span id="train-credit">--</span></div>
       <div class="row"><span>population</span><span id="train-mean">--</span></div>
       <canvas id="fitness-spark" width="240" height="44"></canvas>
       <button id="replay" type="button">replay best</button>
       <div class="row"><span id="replay-gen">no run in progress</span></div>
       <div class="warn" id="train-warn"></div>
+    </section>
 
-      <h2>Driver</h2>
-      <label><input type="checkbox" id="ai-drive"> trained driver (wasd hand over)</label>
+    <section>
+      <h1>Driver</h1>
+      <label><input type="checkbox" id="ai-drive"> trained driver (wasd hands over)</label>
       <div class="row"><span id="ai-status">no checkpoint for this circuit</span></div>
       <div class="row"><span>trained to gen</span><span id="ai-gen">--</span></div>
       <div class="row"><span>its fitness</span><span id="ai-fitness">--</span></div>
       <div class="row"><span>eval length</span><span id="ai-trained">--</span></div>
-      <div class="row"><span>playback</span><span id="playback">1x</span></div>
+    </section>
 
-      <h2>Timing</h2>
+    <section>
+      <h1>Timing</h1>
       <div class="row"><span>lap</span><span id="lapCount">0</span></div>
       <div class="row"><span>sector</span><span id="sectorNow">1 / 3</span></div>
       <div class="row"><span>last lap</span><span id="lastLap">--:--.---</span></div>
@@ -169,35 +191,25 @@
     </section>
 
     <section>
-      <label><input type="checkbox" id="rays" checked> grip rings (load + utilization)</label>
-      <label><input type="checkbox" id="ghost"> force vectors (per-tire, N)</label>
-      <label><input type="checkbox" id="follow"> chase camera</label>
-      <label><input type="checkbox" id="smoke"> tire smoke (crude)</label>
-    </section>
-
-    <section>
-      <h1>Controls</h1>
+      <h1>Keys</h1>
       <div class="keys">
-        <kbd>W</kbd><span class="hint">throttle (analog: it ramps)</span>
-        <kbd>S</kbd><span class="hint">brake — full pressure locks the fronts</span>
-        <kbd>A</kbd><span class="hint">steer left</span>
-        <kbd>D</kbd><span class="hint">steer right</span>
-        <kbd>Q</kbd><span class="hint">brake pressure 50% (threshold feel)</span>
-        <kbd>R</kbd><span class="hint">reset to start line</span>
-        <kbd>space</kbd><span class="hint">handbrake-style lock, all four</span>
+        <kbd>W S</kbd><span class="hint">throttle / brake &mdash; analog, they ramp</span>
+        <kbd>A D</kbd><span class="hint">steer left / right</span>
+        <kbd>Q</kbd><span class="hint">half brake pressure (threshold feel)</span>
+        <kbd>space</kbd><span class="hint">lock all four</span>
+        <kbd>R</kbd><span class="hint">back to the start line</span>
         <kbd>1-4</kbd><span class="hint">switch circuit</span>
+        <kbd>H</kbd><span class="hint">hide this panel &mdash; canvas fills the window</span>
         <kbd>V</kbd><span class="hint">chase camera: rotate behind the car, or stay upright</span>
-        <kbd>+ -</kbd><span class="hint">zoom the camera (the wheel works too)</span>
-        <kbd>0</kbd><span class="hint">reset the zoom</span>
-        <kbd>H</kbd><span class="hint">hide the panel, canvas fills the window</span>
-        <kbd>P</kbd><span class="hint">pause / resume</span>
-        <kbd>J L</kbd><span class="hint">back / forward 5 seconds (replayed, exact)</span>
+        <kbd>+ - 0</kbd><span class="hint">zoom in / out / reset (the wheel works too)</span>
+        <kbd>P</kbd><span class="hint">pause and resume</span>
+        <kbd>J L</kbd><span class="hint">back / forward 5 seconds, replayed exactly</span>
         <kbd>, .</kbd><span class="hint">one frame back / forward</span>
         <kbd>[ ]</kbd><span class="hint">slower / faster, up to 16x</span>
       </div>
       <p class="hint">
-        Hit a corner hard on the brakes and watch the front lock counter climb:
-        the car keeps braking but stops turning, which is the point.
+        Lock the fronts under braking and watch the lock counter climb: the car keeps slowing but
+        stops turning, which is the point.
       </p>
     </section>
   </aside>

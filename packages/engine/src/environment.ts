@@ -243,6 +243,8 @@ export interface RunResult {
   checkpointCredit: number;
   /** Fastest speed carried through any checkpoint, as a fraction of its limit. */
   checkpointBestFraction: number;
+  /** How many corner checkpoints this circuit has. */
+  checkpointCount: number;
   /**
    * Steering travel per hundred metres, in units of full lock.
    *
@@ -653,6 +655,7 @@ export const runPolicy = (
     checkpointsPassed,
     checkpointCredit: checkpointCreditSum,
     checkpointBestFraction: checkpointBestFraction,
+    checkpointCount,
     steeringWork: steeringWorkPerMetre,
   };
 };
