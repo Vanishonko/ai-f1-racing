@@ -151,3 +151,6 @@ gen      best (m/s)   mean dist   on track    elapsed
   WARNING after generation 293: the search centre (3) has fallen far below its best (1943); it has wandered into a worse region
   WARNING after generation 295: the search centre (2) has fallen far below its best (1943); it has wandered into a worse region
   WARNING after generation 296: the search centre (1) has fallen far below its best (1943); it has wandered into a worse region
+  WARNING after generation 298: the search centre (0) has fallen far below its best (1943); it has wandered into a worse region
+ 300       1942.5          603         8%    0h 04m 08s
+ 350       1942.5          592         7%    0h 04m 53s
