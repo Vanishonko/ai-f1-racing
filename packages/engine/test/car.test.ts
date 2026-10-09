@@ -1,4 +1,5 @@
 import test from "node:test";
+import { MAX_STEER_ANGLE as MAX_STEER_ANGLE_EXPORT } from "../src/steerLut.ts";
 import assert from "node:assert/strict";
 import {
   CLEAN_AIR,
@@ -12,6 +13,7 @@ import {
   WHEEL_RR,
   type CarState,
   type StepContext,
+  TAN_MAX_STEER as TAN_MAX_STEER_EXPORT,
 } from "../src/car.ts";
 
 const DT = 1 / 60;
@@ -519,5 +521,19 @@ test("car: a car with no controls stays exactly where it is", () => {
     launching.distance > 1,
     `a car at 30% throttle moved only ${launching.distance.toFixed(2)} m in 3 s; the clutch ` +
       `must still transmit enough torque to pull away`,
+  );
+});
+
+test("car: the baked tangent of full lock matches the real one", () => {
+  /*
+   * `TAN_MAX_STEER` is a literal because `Math.tan` is not bit-identical across engines and the
+   * determinism linter rejects it in the simulation core. It was first typed WRONG — out in the
+   * seventh decimal — which no test would have caught because it is only ever used inside a ratio
+   * that sets a steering ceiling. A constant that is never checked against its own definition is a
+   * number nobody owns.
+   */
+  assert.ok(
+    Math.abs(TAN_MAX_STEER_EXPORT - Math.tan(MAX_STEER_ANGLE_EXPORT)) < 1e-12,
+    `the baked tangent ${TAN_MAX_STEER_EXPORT} does not match tan(${MAX_STEER_ANGLE_EXPORT}) = ${Math.tan(MAX_STEER_ANGLE_EXPORT)}`,
   );
 });
