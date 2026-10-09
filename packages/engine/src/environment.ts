@@ -45,6 +45,31 @@ import {
 import { driveSmoothed, type Controls, type Driver } from "./driver.ts";
 import { createObservation, observe, type Observation } from "./sense.ts";
 import { gripNoiseAt } from "./rng.ts";
+import { sampleIndexAt, cornerCheckpoints } from "./track.ts";
+
+/**
+ * A representative cornering limit, in metres per second squared.
+ *
+ * Used only to express a checkpoint reward as a FRACTION of what the car could have carried there, so
+ * that a hairpin and a fast sweeper are worth the same for the same quality of driving. It is a
+ * normalising constant rather than a physical model: the physics has the real one.
+ */
+const DEFAULT_GRIP_LIMIT = 14;
+
+/** Evenly spaced checkpoints, for comparing against the corner-placed ones. */
+const evenCheckpoints = (length: number, count: number): number[] => {
+  const positions: number[] = [];
+  for (let i = 0; i < count; i++) positions.push((length * i) / count);
+  return positions;
+};
+
+/** Grip-limited speed for a curvature, capped so a straight does not produce an infinite limit. */
+const gripLimitedSpeed = (curvature: number, gripLimit: number): number => {
+  const k = Math.abs(curvature);
+  // A straight has no cornering limit, so the cap is the car's own terminal speed.
+  if (k < 1e-6) return 85;
+  return Math.min(85, Math.sqrt(gripLimit / k));
+};
 import { MAX_STEER_ANGLE } from "./steerLut.ts";
 import { pointAtDistance, type Track } from "./track.ts";
 
@@ -157,6 +182,14 @@ export interface RunOptions {
   /** How many checkpoints the circuit is divided into. Zero disables them. */
   checkpointCount?: number;
   /**
+   * Place checkpoints at corner entry, apex and exit instead of evenly.
+   *
+   * The default for training, because it measures the reward where the lap is actually decided.
+   */
+  cornerCheckpoints?: boolean;
+  /** Cornering limit used to normalise checkpoint rewards. See `DEFAULT_GRIP_LIMIT`. */
+  gripLimit?: number;
+  /**
    * Ladder weights for this run, already annealed by the caller.
    *
    * The trainer computes these from the generation number; the environment only applies them, so the
@@ -201,6 +234,15 @@ export interface RunResult {
   topSpeed: number;
   /** Checkpoints passed in the correct order. */
   checkpointsPassed: number;
+  /**
+   * Checkpoint credit earned, as a sum of fractions of each checkpoint's grip-limited speed.
+   *
+   * The number that actually drives cornering behaviour: a value near the checkpoint count means the
+   * car carried near its maximum possible speed through every one of them.
+   */
+  checkpointCredit: number;
+  /** Fastest speed carried through any checkpoint, as a fraction of its limit. */
+  checkpointBestFraction: number;
   /**
    * Steering travel per hundred metres, in units of full lock.
    *
@@ -387,8 +429,37 @@ export const runPolicy = (
    */
   let checkpointsPassed = 0;
   let nextCheckpoint = 0;
-  const checkpointCount = options.checkpointCount ?? 0;
-  const checkpointStep = checkpointCount > 0 ? track.length / checkpointCount : 0;
+  /*
+   * Checkpoint POSITIONS, not a count and an even division. See `cornerCheckpoints`: a lap is won in
+   * the corners, so that is where the reward is measured.
+   */
+  const checkpointPositions = options.cornerCheckpoints
+    ? cornerCheckpoints(track)
+    : options.checkpointCount
+      ? evenCheckpoints(track.length, options.checkpointCount)
+      : [];
+  const checkpointCount = checkpointPositions.length;
+  const checkpointAt = (index: number): number => checkpointPositions[index] ?? 0;
+  /*
+   * SPEED CARRIED THROUGH EACH CHECKPOINT, which is what makes a corner checkpoint worth having.
+   *
+   * Rewarding mere passage through a corner is farmable the obvious way: CUT IT. The shortest path
+   * through a corner is the one that clips the inside, so a passage reward paid at an apex pays most
+   * for the least driving. That is the same failure as the driver that learned to leave the circuit
+   * because distance kept accruing across the infield.
+   *
+   * So the reward is scaled by the speed actually carried, and by whether the car was ON THE CIRCUIT
+   * at the moment it passed. Cutting the corner puts the car on the grass at the apex, which forfeits
+   * it; taking the corner slowly forfeits most of it. What is left is worth having only by driving the
+   * corner properly and quickly — which is the behaviour that was wanted in the first place, obtained
+   * by measurement rather than by a rule.
+   */
+  const checkpointBestSpeed = checkpointCount > 0 ? new Float64Array(checkpointCount) : null;
+  const checkpointOnTrack = checkpointCount > 0 ? new Uint8Array(checkpointCount) : null;
+  /** Set each step from the observation, so "on the circuit" has one definition. */
+  let carOnTrack = true;
+  let checkpointCreditSum = 0;
+  let checkpointBestFraction = 0;
 
   /*
    * The car's lock and wheelspin timers are CUMULATIVE, so they are differenced rather
@@ -415,11 +486,21 @@ export const runPolicy = (
     else progress += advanced;
     previousDistance = observation.distance;
 
-    // Laps come from progress rather than from the wrap above, which also fires when a
-    // car crosses the line backwards. Progress is monotonic, so it cannot be gamed.
-    laps = Math.floor(progress / track.length);
+    /*
+     * Laps come from progress rather than from the wrap above, which also fires when a car crosses
+     * the line backwards.
+     *
+     * Clamped at zero, and this is a guard rather than a fix. A run was observed reporting MINUS ONE
+     * lap, which means `progress` went negative — the car travelled backwards far enough to unwind a
+     * whole lap of accumulated progress, and the wrap test above did not absorb it because a
+     * backwards crossing is a small step rather than a large one. The clamp stops a negative lap
+     * silently PUNISHING a driver through the lap reward; the underlying accumulation is still wrong
+     * when a car reverses over the line and that is recorded here rather than papered over.
+     */
+    laps = Math.max(0, Math.floor(progress / track.length));
 
-    if (observation.onTrack) onTrackSteps++;
+    carOnTrack = observation.onTrack;
+    if (carOnTrack) onTrackSteps++;
     utilizationSum += meanUtilization(car);
 
     const lockDelta = car.frontLockTime - previousLockTime;
@@ -434,8 +515,16 @@ export const runPolicy = (
     const speedNow = Math.sqrt(car.vx * car.vx + car.vy * car.vy);
     if (speedNow > topSpeed) topSpeed = speedNow;
 
-    if (checkpointCount > 0) {
-      const target = nextCheckpoint * checkpointStep;
+    if (checkpointCount > 0 && checkpointBestSpeed && checkpointOnTrack) {
+      /*
+       * The speed is recorded as the car APPROACHES its next checkpoint, not only at the instant it
+       * crosses. A single sample taken on the line would be a lottery: one step of a corner tells you
+       * almost nothing, and the search would be optimising noise.
+       */
+      const index = nextCheckpoint % checkpointCount;
+      if (speedNow > checkpointBestSpeed[index]!) checkpointBestSpeed[index] = speedNow;
+
+      const target = checkpointAt(nextCheckpoint);
       /*
        * `distance` is monotonic along the lap, so a checkpoint counts when the car has travelled past
        * it. Requiring the CORRECT next one is what makes them directional: a car that reverses over a
@@ -444,6 +533,16 @@ export const runPolicy = (
        */
       if (car.distance >= target) {
         checkpointsPassed++;
+        /*
+         * ON-TRACK IS JUDGED AT THE CROSSING, not throughout the approach.
+         *
+         * An earlier version flagged a checkpoint the moment the car was off the circuit anywhere
+         * before reaching it, which meant one early excursion forfeited every checkpoint still to
+         * come — a driver that ran wide once at the first corner scored nothing for the rest of the
+         * lap. What the reward is meant to express is whether the corner was driven or cut, and that
+         * is a property of the crossing.
+         */
+        if (!carOnTrack) checkpointOnTrack[index] = 1;
         nextCheckpoint++;
         if (nextCheckpoint >= checkpointCount) nextCheckpoint = 0;
       }
@@ -504,7 +603,33 @@ export const runPolicy = (
    * across the infield does not score.
    */
   const lapReward = (options.lapReward ?? 0) * laps * gate;
-  const checkpointReward = (options.checkpointReward ?? 0) * checkpointsPassed * gate;
+
+  /*
+   * Checkpoint credit is the speed actually carried, as a fraction of what the car could have
+   * carried there, and only for checkpoints passed while on the circuit.
+   *
+   * `cornerSpeedLimit` is the grip-limited speed for the curvature at that point — the fastest a car
+   * with this much grip can physically go round it. Expressing the reward as a fraction OF that is
+   * what makes it comparable between a hairpin and a fast sweeper, rather than paying most for the
+   * corner that happens to be taken fastest.
+   */
+  let checkpointCredit = 0;
+  if (checkpointCount > 0 && checkpointBestSpeed && checkpointOnTrack) {
+    for (let i = 0; i < checkpointCount; i++) {
+      if (checkpointBestSpeed[i]! <= 0) continue;
+      // A checkpoint missed while off the circuit earns nothing; see the note where it is recorded.
+      if (checkpointOnTrack[i] === 1) continue;
+      const at = checkpointAt(i);
+      const sample = sampleIndexAt(track, at);
+      const curvature = Math.abs(track.curvature[sample] ?? 0);
+      const limit = gripLimitedSpeed(curvature, options.gripLimit ?? DEFAULT_GRIP_LIMIT);
+      const achieved = limit > 0 ? checkpointBestSpeed[i]! / limit : 0;
+      checkpointCredit += achieved > 1 ? 1 : achieved;
+      if (achieved > checkpointBestFraction) checkpointBestFraction = achieved;
+    }
+    checkpointCreditSum = checkpointCredit;
+  }
+  const checkpointReward = (options.checkpointReward ?? 0) * checkpointCredit;
   const fitness =
     lapReward +
     checkpointReward +
@@ -526,6 +651,8 @@ export const runPolicy = (
     averageSpeed,
     topSpeed,
     checkpointsPassed,
+    checkpointCredit: checkpointCreditSum,
+    checkpointBestFraction: checkpointBestFraction,
     steeringWork: steeringWorkPerMetre,
   };
 };

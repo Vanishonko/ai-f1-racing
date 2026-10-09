@@ -68,7 +68,7 @@ export interface EvaluationRequest {
    * it. Missing one produces a run that scores differently with the pool than without it, which is
    * the worst kind of bug: it works, and it disagrees with itself.
    */
-  checkpointCount: number;
+  cornerCheckpoints: boolean;
   lapReward: number;
   checkpointReward: number;
   topSpeedWeight: number;
@@ -342,7 +342,8 @@ export const trainGeneration = async (
   const ladder = ladderFor(state.generation + 1);
   const options: RunOptions = {
     ...runOptions,
-    checkpointCount: runOptions.checkpointCount ?? 12,
+    // Corner checkpoints: entry, apex and exit for every corner. See `cornerCheckpoints`.
+    cornerCheckpoints: runOptions.cornerCheckpoints ?? true,
     lapReward: ladder.lapReward,
     checkpointReward: ladder.checkpointReward,
   };
@@ -371,7 +372,7 @@ export const trainGeneration = async (
         circuit: track.key,
         seconds: options.seconds ?? 90,
         objective: options.objective ?? "speed",
-        checkpointCount: options.checkpointCount ?? 12,
+        cornerCheckpoints: options.cornerCheckpoints ?? true,
         lapReward: options.lapReward ?? 0,
         checkpointReward: options.checkpointReward ?? 0,
         topSpeedWeight: options.topSpeedWeight ?? 0.15,

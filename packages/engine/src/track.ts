@@ -276,6 +276,75 @@ export const buildTrack = (
  * distance still lands in range.
  */
 /**
+ * Distances at which to place corner checkpoints: entry, apex and exit for every corner.
+ *
+ * WHY CORNERS RATHER THAN EVEN SPACING. A lap is won and lost in the corners, and a checkpoint is a
+ * place the reward is measured. Spacing them evenly spends most of them on straights, where the
+ * fastest thing to do is also the easiest, and gives the hardest part of the lap the same attention
+ * as the easiest.
+ *
+ * Placing them at the three points that define a corner means the reward is measured where the skill
+ * is: how fast the car arrives, how fast it turns, and how early it gets back on the power. Braking
+ * and line discipline then emerge because they are what raises those three numbers.
+ *
+ * `curvatureThreshold` is in inverse metres, so a larger value finds only tighter corners.
+ */
+export const cornerCheckpoints = (
+  track: Track,
+  apexesPerCorner = 3,
+  curvatureThreshold = 0.004,
+): number[] => {
+  const found: number[] = [];
+  const samples = track.curvature.length;
+  if (samples === 0) return found;
+  const spacing = track.length / samples;
+
+  let inCorner = false;
+  let entry = 0;
+  let apex = 0;
+  let peak = 0;
+
+  const close = (exit: number): void => {
+    /*
+     * Three points: entry, apex and exit. The apex is where curvature is greatest, which is the
+     * point of the corner rather than its midpoint — on an asymmetric corner those differ, and the
+     * apex is the one that matters for speed.
+     */
+    const from = entry * spacing;
+    const to = exit * spacing;
+    const middle = apex * spacing;
+    if (apexesPerCorner >= 1) found.push(from);
+    if (apexesPerCorner >= 2) found.push(middle);
+    if (apexesPerCorner >= 3) found.push(to);
+  };
+
+  for (let i = 0; i < samples; i++) {
+    const curvature = Math.abs(track.curvature[i] ?? 0);
+    if (curvature > curvatureThreshold) {
+      if (!inCorner) {
+        inCorner = true;
+        entry = i;
+        apex = i;
+        peak = curvature;
+      } else if (curvature > peak) {
+        peak = curvature;
+        apex = i;
+      }
+    } else if (inCorner) {
+      inCorner = false;
+      close(i);
+    }
+  }
+  // A corner still open at the last sample wraps past the start line and must still be recorded.
+  if (inCorner) close(samples - 1);
+
+  // Sorted so the checkpoint order follows the lap, and de-duplicated so a very short corner does
+  // not produce the same point three times.
+  found.sort((a, b) => a - b);
+  return found.filter((value, index) => index === 0 || value - found[index - 1]! > 1);
+};
+
+/**
  * The sample index containing a given distance along the track.
  *
  * Exported because tools outside the simulation need to look up track properties by distance —

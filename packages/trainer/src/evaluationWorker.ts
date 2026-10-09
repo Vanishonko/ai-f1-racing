@@ -19,7 +19,7 @@ interface Request {
   circuit: string;
   seconds: number;
   objective: Objective;
-  checkpointCount: number;
+  cornerCheckpoints: boolean;
   lapReward: number;
   checkpointReward: number;
   topSpeedWeight: number;
@@ -55,7 +55,7 @@ port.on("message", (request: Request) => {
     const result = runDriver(driver, track, {
       seconds: request.seconds,
       objective: request.objective,
-      checkpointCount: request.checkpointCount,
+      cornerCheckpoints: request.cornerCheckpoints,
       lapReward: request.lapReward,
       checkpointReward: request.checkpointReward,
       topSpeedWeight: request.topSpeedWeight,

@@ -28,7 +28,7 @@ export interface EvaluationRequest {
   seconds: number;
   objective: "speed" | "distance";
   /** Every value that affects the score must reach the worker; see `evolve.ts`. */
-  checkpointCount: number;
+  cornerCheckpoints: boolean;
   lapReward: number;
   checkpointReward: number;
   topSpeedWeight: number;
