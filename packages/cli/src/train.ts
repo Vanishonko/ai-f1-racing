@@ -57,8 +57,9 @@ Train a driver by evolution strategy.
   --seed <n>           random seed, for a reproducible run (default 1)
   --checkpoint <path>  where to save the best driver (default checkpoints/<circuit>.json)
   --report <n>         print a line every n generations (default 10)
-  --workers <n>        evaluation worker threads (default: one per core, minus one)
-                       use one fewer than that if you want to watch in the browser
+  --workers <n>        evaluation worker threads (default: one per core)
+                       six is faster than eight while the browser viewer is open, because the
+                       renderer and the workers then contend for the same cores
   --quiet              only print checkpoints and the final summary
   --no-resume          start from a fresh random draw instead of the checkpoint
   --list               list the available circuits and exit
