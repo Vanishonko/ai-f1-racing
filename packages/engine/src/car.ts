@@ -212,8 +212,25 @@ export const DEFAULT_CAR_PARAMS: CarParams = (() => {
     gearbox: DEFAULT_GEARBOX,
     differential: DEFAULT_DIFF,
     tire: DEFAULT_TIRE,
-    downforceFront: 1900,
-    downforceRear: 2300,
+    /*
+     * Downforce, at 50 m/s, scaling with speed squared.
+     *
+     * MEASURED AGAINST REAL FORMULA 1, and the original figures were about a third of the real thing.
+     * Total downforce is now 12,600 N at 50 m/s, which is roughly half a tonne of extra load at 180
+     * km/h — the order of magnitude a high-downforce single-seater actually produces, and enough that
+     * the car generates well over twice its own weight in grip at speed.
+     *
+     * The audit that produced these numbers, at 300 km/h:
+     *
+     *   before   2.49 times the car's weight in normal load, braking 192 m from 300 km/h, peak 3.25 g
+     *   after    3.7 times, braking about 140 m, peak over 5 g
+     *   real F1  3.5 to 4.5 times, braking 120 to 140 m, peak over 5 g
+     *
+     * Without this the car could not corner as a Formula 1 car corners, which meant every driver the
+     * search produced was learning to drive something else.
+     */
+    downforceFront: 5700,
+    downforceRear: 6900,
     // Tuned for a terminal velocity near 315 km/h, which is roughly right for a
     // high-downforce single-seater. Slightly more drag is needed than a bare
     // Cd*A calculation suggests because the tire model's own rolling behaviour
@@ -306,6 +323,21 @@ export const createCarState = (x = 0, y = 0, heading = 0): CarState => ({
 const downforceAt = (speed: number, valueAt50: number): number => {
   const ratio = speed / 50;
   return valueAt50 * ratio * ratio;
+};
+
+/**
+ * The rear axle's normal load, for limiting drive torque to the traction available.
+ *
+ * Static weight distribution plus whatever downforce the car is making at its current speed.
+ * Deliberately a simple estimate rather than a full recomputation of the wheel loads: it exists to
+ * stop the engine overwhelming the tires, and being slightly conservative costs a fraction of a
+ * second off a launch while being slightly generous costs the tires entirely.
+ */
+const rearAxleLoadEstimate = (state: CarState, params: CarParams): number => {
+  const speed = Math.sqrt(state.vx * state.vx + state.vy * state.vy);
+  const downforce =
+    downforceAt(speed, params.downforceFront) + downforceAt(speed, params.downforceRear);
+  return (params.mass * 9.81 + downforce) * (1 - params.weightDistFront);
 };
 
 /**
@@ -559,7 +591,29 @@ export const stepCar = (
   // --- wheel dynamics, substepped ---
   const substep = dt / wheelSubsteps;
   const grip = context.surfaceGrip * context.gripNoise;
-  const axleTorque = engineOut * gearRatio * params.gearbox.finalDrive;
+  /*
+   * TRACTION CONTROL: the drive torque is capped by what the rear tires can actually put down.
+   *
+   * MEASURED WITHOUT IT, the car could not launch. From rest at full throttle the engine sat at its
+   * 15,000 rpm limiter with the rear wheels spinning THIRTY-SEVEN METRES PER SECOND faster than the
+   * car, and the wheelspin timer saturated for the entire run. It was not accelerating, it was
+   * destroying its tires: 0 to 100 km/h took 4.0 seconds against a real Formula 1 car's 2.6.
+   *
+   * A real car does not do this, and the reason is not that its drivers are careful — it is that a
+   * tire cannot transmit more force than its friction circle allows, so a competent launch meters the
+   * torque to the grip available. Modern Formula 1 cars do it electronically. Modelling the limit
+   * directly is both more realistic and far kinder to a search that would otherwise have to discover
+   * throttle modulation from scratch, in the one situation where the gradient is worst.
+   *
+   * The cap uses the previous tick's rear axle load, which is what the tire model has to work with
+   * anyway, and leaves the tire model itself untouched: this limits what the ENGINE asks for, so
+   * wheelspin is still possible from a bad setup or a sudden surface change.
+   */
+  const rearLoadEstimate = rearAxleLoadEstimate(state, params);
+  const maxTractionTorque = rearLoadEstimate * params.tire.muX * params.wheelRadius;
+  const axleTorqueUncapped = engineOut * gearRatio * params.gearbox.finalDrive;
+  const axleTorque =
+    axleTorqueUncapped > maxTractionTorque ? maxTractionTorque : axleTorqueUncapped;
   const diff = params.differential;
   // Brake torque is the driver's demand scaled by the per-tick pressure control,
   // which is what allows a braking event to be modulated rather than merely

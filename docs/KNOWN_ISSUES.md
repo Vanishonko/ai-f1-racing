@@ -1,5 +1,48 @@
 # Known issues
 
+## The launch is traction-limited, so 0-100 is a second and a half slow
+
+**Found:** auditing the car against real Formula 1 figures. Braking and top speed now match; the launch
+does not.
+
+    sim      0-100 km/h in 4.0 s      real F1 about 2.6 s
+    sim      0-200 km/h in 6.2 s      real F1 about 4.8 s
+
+**What is happening.** From rest at full throttle the engine reaches its 15,000 rpm limiter while the
+car is still at walking pace, with the rear wheels spinning tens of metres per second faster than the
+road. The car is not accelerating, it is destroying its tires.
+
+**Why the obvious fix does not work.** Drive torque is already capped at what the rear tires can put
+down — measured, the cap is 2,202 Nm against an uncapped 9,687 Nm and it is definitely being applied —
+and it is not enough. The reason is inertia: a wheel is 1.1 kg·m², an effective 10 kg against a 798 kg
+car, and first gear multiplies engine torque by 12.58. Any excess torque whatsoever spins a wheel up
+almost instantly, and the tire's force falls away as slip grows, so the wheel runs away faster than the
+tire can pull it back.
+
+**What a real car has that this does not:** a clutch model, which is what actually meters torque during a
+launch, and an engine map that softens the low-rpm response. Launch control is a genuine sub-system
+rather than a constant to tune.
+
+**Not fixed because:** getting it wrong destabilises everything else, and braking and top speed were
+already brought into line in the same pass. The next step is a proper clutch engagement curve during
+first gear, not another torque cap.
+
+---
+
+## Two tests fail after the downforce and power changes
+
+Both are measuring the wrong thing rather than reporting a fault, which took a while to establish:
+
+  - `car: tire wear degrades grip and eventually matters` compares PEAK LATERAL ACCELERATION between a
+    fresh and a worn car, both at full lock and full throttle. That measurement is an uncontrolled
+    spin-out, so it depends on power and downforce as much as on grip. Measured directly, wear behaves
+    correctly: 1.36 g fresh, 1.21 g at half wear, 0.98 g fully worn.
+  - `car: throttle is an analog control with a non-trivial optimum` encodes the old power delivery,
+    which traction control and a thousand horsepower changed.
+
+Both need rewriting to measure grip rather than the outcome of a slide.
+
+
 Things that are wrong and are not yet fixed, written down so they are not rediscovered from scratch.
 Each entry says how it was found, because the way a bug presents is often more useful than the bug.
 

@@ -54,7 +54,17 @@ export interface EngineSpec {
 }
 
 export const DEFAULT_ENGINE: EngineSpec = {
-  peakTorque: 480,
+  /*
+   * Peak torque, sized from the POWER a Formula 1 power unit makes rather than from a torque figure
+   * picked by feel.
+   *
+   * The original 480 Nm produced 460 kW at 11,000 rpm, which is 617 hp. A modern Formula 1 power unit
+   * makes about 750 kW, a thousand horsepower, so the car was a third down on power as well as on
+   * downforce — measured, 0 to 100 km/h in 4.0 seconds against a real 2.6.
+   *
+   * 770 Nm at the same peak speed gives about 1000 hp, which is the figure the sport quotes.
+   */
+  peakTorque: 770,
   peakTorqueRpm: 10500,
   idleTorqueFraction: 0.43,
   torqueFalloffRpm: 13000,
