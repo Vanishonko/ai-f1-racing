@@ -77,6 +77,45 @@ must be on a straight, and there must be run-up before the first corner.
 
 ---
 
+## The ray fan is 77 per cent of an evaluation and is not yet safe to cache — OPEN
+
+**Measured, with `pnpm run profile`:** a full evaluation step costs 284 ms per 5,400 steps, of which
+`observe` is 245 ms and the ray fan inside it is 217 ms. **77 per cent of the whole training loop is
+eleven rays walked in 6 m steps.** Nothing else in the sim is close: `stepCar` is 10 ms, `drive` 4 ms.
+
+Only the angle-to-sine/cosine is baked today (`steerLut.ts`). The ray VALUES are recomputed every tick.
+
+**It cannot simply be cached, and three attempts to do so were reverted.** The fan depends on where the
+car is, which way it points, and the track, so a lookup would need a `(distance, relative heading)` table
+per circuit — feasible in principle, but every shortcut tried so far changed the drivers measurably:
+
+| approach | speed | behaviour |
+|---|---|---|
+| search window 40 m (current) | 1.0x | baseline |
+| search window 8 m | 2.7x on the fan | rays differ; drivers change |
+| window 8 m + corrected hint | ~3x | rays still differ |
+| walk the centreline, no search | 14x | up to 84 m error; unusable |
+
+**The underlying fault, which is worth fixing on its own merits.** A probe is placed near
+`projection.s + travelled`, treating it as `travelled` metres further ALONG THE TRACK. That is only true
+for a ray pointing straight down the road: a ray sixty degrees off the centreline advances along the
+track by `travelled * cos(angle)`, about half as far, and one pointing backwards does not advance at all.
+The forty-metre window has been absorbing that error by searching far enough to find the probe anyway.
+The correct hint is `projection.s + travelled * cos`, where `cos` is already computed a few lines above.
+
+**Why it was not landed.** Fixing the hint changes the rays even at the current window, so it is a
+behaviour change and not a free optimisation, and it has to be validated against a driver strong enough
+to tell the difference. The checkpoint available at the time averaged 6.4 m/s and could not complete a
+lap, so every variant scored the same within noise. This is the first thing to do once a strong driver
+exists again.
+
+**Trap that cost time here, recorded so it does not cost it twice.** `checkpoints/club.json` is
+overwritten by a running trainer. Comparing measurements taken before and after starting a run compares
+two different drivers, and it looks exactly like a performance regression — a "before" of 3,543 m against
+an "after" of 582 m was entirely this. Take a copy before comparing anything.
+
+---
+
 ## The viewer and the trainer drive the same driver differently
 
 **Found:** the club-circuit elite completes three quarters of a lap of Spa and averages 105 km/h when run

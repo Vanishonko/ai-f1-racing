@@ -54,6 +54,36 @@ const RAY_RANGE = 90;
 /** How far the fan spreads either side of the nose, in radians. */
 const RAY_HALF_ANGLE = 1.0;
 
+/** Distance between successive probes along a ray [m]. */
+const RAY_PROBE_STEP = 6;
+
+/**
+ * How far `projectToTrackNear` may look when placing a ray probe [m].
+ *
+ * THE RAY FAN IS THE WHOLE COST OF AN EVALUATION, so this number is worth attention. Measured, the fan
+ * is 77 per cent of a full evaluation step — a single observation casts up to 165 probes and each probe
+ * searches 161 samples. Nothing else in the sim is close.
+ *
+ * IT IS STILL THE DEFAULT BECAUSE SHRINKING IT IS NOT YET SAFE, and that is recorded here rather than
+ * left as a tempting local edit. Narrowing it to eight metres — which is a third of a probe step of
+ * margin — is 2.7 times faster on the fan and changes the drivers measurably, so it is not the free
+ * optimisation it looks like.
+ *
+ * THE REASON IS THE HINT, and it is a real fault worth fixing first. A probe is placed near
+ * `projection.s + travelled`, which treats it as `travelled` metres further ALONG THE TRACK. That holds
+ * only for a ray pointing straight down the road: a ray sixty degrees off the centreline advances along
+ * the track by `travelled * cos(angle)`, about half as far, and one pointing backwards does not advance
+ * at all. The wide window has been absorbing that error by searching far enough to find the probe
+ * anyway — which is why narrowing it exposes a hint that was never right.
+ *
+ * The correct hint is `projection.s + travelled * cos`, where `cos` is the ray's component along the
+ * track tangent and is already computed a few lines above. Fixing it changes the rays even at the
+ * current window, so it is a behaviour change in its own right and needs validating against a STRONG
+ * driver — the checkpoint available when this was investigated averaged 6.4 m/s and could not tell the
+ * two apart. See `docs/KNOWN_ISSUES.md`.
+ */
+const RAY_PROBE_WINDOW = 40;
+
 /**
  * Inputs per observation.
  *
@@ -234,12 +264,17 @@ export const observe = (
 
     let travelled = 0;
     let centreOffset = 0;
-    const step = 6;
     while (travelled < RAY_RANGE) {
-      travelled += step;
+      travelled += RAY_PROBE_STEP;
       const probeX = car.x + dirX * travelled;
       const probeY = car.y + dirY * travelled;
-      const probe = projectToTrackNear(track, probeX, probeY, projection.s + travelled);
+      const probe = projectToTrackNear(
+        track,
+        probeX,
+        probeY,
+        projection.s + travelled,
+        RAY_PROBE_WINDOW,
+      );
       if (!probe.onTrack) break;
       centreOffset = probe.d;
     }

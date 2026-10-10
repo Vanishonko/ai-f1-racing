@@ -16,6 +16,7 @@
     "train": "node packages/cli/src/train.ts",
     "bench": "node packages/cli/src/bench.ts",
     "reward": "node scripts/reward-breakdown.ts",
+    "profile": "node scripts/profile-observe.ts",
     "lint:determinism": "node scripts/lint-determinism.ts"
   },
   "devDependencies": {
