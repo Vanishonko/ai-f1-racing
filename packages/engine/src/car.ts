@@ -111,32 +111,6 @@ const ROLLING_RESISTANCE = 0.014;
  */
 
 /**
- * Cornering acceleration the front tires can supply, in metres per second squared.
- *
- * Used only to decide how much steering authority is useful at a given speed. Deliberately a little
- * below the true limit so the ceiling is reached slightly before the tires are, which leaves a driver
- * a margin to feel rather than a cliff to fall off.
- */
-const FRONT_LATERAL_LIMIT = 15;
-
-/**
- * The fraction of full lock that is worth having at a given speed.
- *
- * From `R = wheelbase / tan(angle)` and the requirement `R >= v^2 / a`, the largest useful angle
- * satisfies `tan(angle) <= wheelbase * a / v^2`. Closed form, evaluated once per tick, written as
- * arithmetic so it stays on the right side of the determinism contract.
- *
- * `tan(MAX_STEER_ANGLE)` is a constant of the car, so the comparison is against a value computed once
- * rather than per tick.
- */
-const steeringCeiling = (speed: number, wheelbase: number): number => {
-  const bound = (wheelbase * FRONT_LATERAL_LIMIT) / (speed * speed);
-  const maxTangent = TAN_MAX_STEER;
-  if (bound >= maxTangent) return 1;
-  return bound / maxTangent;
-};
-
-/**
  * The tangent of full lock, written as a literal.
  *
  * Verified against `Math.tan(MAX_STEER_ANGLE)` by a test, because it was first typed WRONG — off in
@@ -543,30 +517,31 @@ export const stepCar = (
   if (engineOut < 0 && rollingRpm < params.engine.idleRpm * 0.75) engineOut = 0;
 
   /*
-   * STEERING AUTHORITY FALLS WITH SPEED, because at speed there is nothing to steer with.
+   * THE STEERING COMMAND IS A WHEEL POSITION, and nothing else.
    *
-   * This was the cause of the car being undriveable, and it took a long time to see because the
-   * symptom looked like a tire problem. Full lock is 0.55 radians of road-wheel angle, which
-   * geometrically means a 5.7 metre turning radius — so commanding it at 140 km/h demands TWENTY-SEVEN
-   * GEE of cornering force. No tire has ever made 27 g. The tires therefore saturate every time a
-   * large input is asked for, and a saturated car does not come back.
+   * A command of 0.5 means half of full lock — at forty kilometres an hour and at two hundred and forty,
+   * on every corner of every lap. That is what a steering wheel is, and it is what a driver, or a network
+   * learning to be one, needs the control to mean.
    *
-   * Measured before this: a smooth speed-holding driver spun at EVERY steering input above 80 km/h,
-   * and at 200 km/h a steering input of 0.05 — five per cent of lock — was enough. That is not a
-   * driving problem. There was no input small enough to be safe at speed.
+   * TWO OTHER SCHEMES WERE BUILT AND BOTH WERE WRONG, and they are worth recording because each looked
+   * reasonable at the time.
    *
-   * The limit is derived from the physics rather than tuned: the front tires can supply about
-   * `lateralLimit` of acceleration, and a steady turn at speed v needs `v^2 / R`. Asking for more is
-   * asking for grip that does not exist, so the maximum useful angle is the one where those are equal.
-   * Understeer at the limit is a real and useful behaviour; an instant spin is not.
+   * The first scaled the maximum angle down with speed. It stopped the car spinning, but it made the
+   * command mean six different things: half a command used ninety-nine per cent of the available grip at
+   * forty kilometres an hour and fifteen per cent at two hundred and forty.
    *
-   * Real cars have exactly this property — the steering is slower at speed, whether by ratio, by
-   * power assistance or simply because a driver cannot hold lock — and the effect is that the fastest
-   * way through a corner is a measured input rather than a binary one.
+   * The second went further and defined the command as a FRACTION OF AVAILABLE GRIP, so half a command
+   * always asked for half the cornering the car had. Consistent in outcome — and it made the physical
+   * wheel position depend on speed, where half a command was 0.215 radians at forty and 0.006 at two
+   * hundred and forty, a factor of thirty-five. A control whose meaning moves with speed is worse than
+   * one that is merely hard to use, because there is nothing stable to learn.
+   *
+   * SO THE COMMAND IS AN ANGLE, and asking for too much lock at speed asks for more grip than exists. The
+   * car understeers or spins, exactly as a real one does, and learning not to do that IS the skill the
+   * whole exercise is about. Full lock is a 5.7 metre turning radius, so it cannot be used above walking
+   * pace, and a driver that treats the wheel as a switch will discover that immediately.
    */
-  const speed = Math.sqrt(state.vx * state.vx + state.vy * state.vy);
-  const steerCeiling = steeringCeiling(speed, params.wheelbase) * MAX_STEER_ANGLE;
-  const steerTarget = clamp(state.steerCommand, -1, 1) * steerCeiling;
+  const steerTarget = clamp(state.steerCommand, -1, 1) * MAX_STEER_ANGLE;
   const maxSteerDelta = STEER_RATE * dt;
   state.steerAngle += clamp(steerTarget - state.steerAngle, -maxSteerDelta, maxSteerDelta);
 
