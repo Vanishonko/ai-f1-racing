@@ -1,5 +1,32 @@
 # Known issues
 
+## The car spins where it should understeer
+
+**Found:** asking for more steering lock than the tires can supply. A real car understeers — the front
+loses grip first and the car ploughs wide, which is slow, obvious and recoverable. Ours spins: the rear
+axle loses grip first, so the car rotates and ends up travelling backwards.
+
+**How it presents.** At a held 120 km/h the car is stable to 0.15 of steering command with 0.3 degrees of
+slip, and spins at 0.20. The limit is sharp and geometric rather than vague: 0.275 radians at that speed
+demands 3.75 g against roughly 2.5 g available, so the request is simply impossible — but the way the car
+fails is the wrong way round.
+
+**What was ruled out.** Weight distribution was swept from 0.40 to 0.55 front and rear downforce from 6,900
+to 9,000 newtons, and neither changes it, so this is not a balance problem that a setup can fix. The
+balance is already slightly rearward as a real single-seater is.
+
+**Where to look.** The tire model past saturation. A real tire's lateral force peaks and then falls away
+gradually, and that falling slope is what makes a sliding car want to straighten itself. This model's force
+curve saturates and stays there, so once the rear is past its peak there is no mechanism pulling the car
+back into line and the yaw runs away.
+
+**Why it matters more than it sounds.** A car whose limit is a cliff rather than a slope is the hardest
+possible thing to learn against, because there is no gradient telling the driver it is close. Every
+training run so far has been learning against this.
+
+---
+
+
 ## The launch is traction-limited, so 0-100 is a second and a half slow
 
 **Found:** auditing the car against real Formula 1 figures. Braking and top speed now match; the launch
