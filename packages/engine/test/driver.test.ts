@@ -10,8 +10,12 @@ import {
   PARAMETER_OFFSETS,
   type Controls,
   smoothControls,
+  driveSmoothed,
 } from "../src/driver.ts";
 import { createObservation } from "../src/sense.ts";
+import { DT, runPolicy } from "../src/environment.ts";
+import { createCarState } from "../src/car.ts";
+import { buildCircuitByKey } from "../src/trackLibrary.ts";
 import { tanh, saturateUnit, logUnit } from "../src/activation.ts";
 import { createRng } from "../src/rng.ts";
 
@@ -323,4 +327,110 @@ test("driver: the pedals move smoothly, not in fixed steps", () => {
   }
   // It should approach the target rather than jump to it.
   assert.ok(seen[0]! < 0.5, `the first step reached ${seen[0]}, which is not a gradual response`);
+});
+
+test("driver: the smoothed controls differ from the raw intent, and that difference is load-bearing", () => {
+  /*
+   * THE VIEWER'S BUG, AS A GUARD.
+   *
+   * `drive` writes the network's raw intent. `driveSmoothed` puts that intent through the pedal lag and
+   * the second-order steering response, and that is the ONLY thing the trainer ever uses. A loop that
+   * calls `drive` and applies the result directly is driving a driver that was never trained: a network
+   * that learned to hold a line against a nine-radian-per-second steering response gets its every twitch
+   * applied instantly.
+   *
+   * Measured when the viewer did exactly that, over ninety seconds of the club circuit with the same
+   * genes: peak 8.1 m/s against 23.2, and 65 per cent on the circuit against 85. It looked like a driver
+   * doing donuts at the finish line, and it was this.
+   *
+   * So the two must NOT be interchangeable. If they ever become identical, the actuator model has stopped
+   * doing anything and every driver is being trained against controls it never receives.
+   */
+  const genes = randomGenes(seeded(99));
+  const observation = createObservation();
+
+  const raw = createDriver(genes, seeded(1));
+  const smoothed = createDriver(genes, seeded(2));
+  const rawOut = controls();
+
+  let diverged = false;
+  let peakRaw = 0;
+  let peakSmoothed = 0;
+  for (let step = 0; step < 240; step++) {
+    /*
+     * An input that swings hard every half second, which is when an actuator model matters. The
+     * observation is overwritten rather than accumulated so the comparison depends only on the
+     * smoothing, not on how the two drivers happen to have moved.
+     */
+    for (let i = 0; i < observation.values.length; i++) {
+      observation.values[i] = step % 30 < 15 ? 1 : -1;
+    }
+    drive(raw, observation, rawOut);
+    const applied = driveSmoothed(smoothed, observation, DT);
+
+    if (Math.abs(rawOut.steer) > peakRaw) peakRaw = Math.abs(rawOut.steer);
+    if (Math.abs(applied.steer) > peakSmoothed) peakSmoothed = Math.abs(applied.steer);
+    if (
+      Math.abs(rawOut.steer - applied.steer) > 1e-6 ||
+      Math.abs(rawOut.throttle - applied.throttle) > 1e-6
+    ) {
+      diverged = true;
+    }
+  }
+
+  assert.ok(
+    diverged,
+    "driveSmoothed must lag the raw intent; if it does not, the actuator model is doing nothing " +
+      "and a loop calling `drive` directly would look correct",
+  );
+  assert.ok(
+    peakSmoothed > 1e-6,
+    `a driver asked for full lock both ways must actually steer: peak was ${peakSmoothed}`,
+  );
+});
+
+test("driver: a loop that calls drive directly does not reproduce the trainer", () => {
+  /*
+   * The guard that would actually have caught the viewer's bug, at the level it occurred.
+   *
+   * The test above proves `drive` and `driveSmoothed` differ in one tick. This one DRIVES A CAR both
+   * ways and shows the difference compounds: a viewer-style loop that calls `drive` and applies the
+   * result must diverge from the trainer over a run, or the viewer is free to drift again.
+   *
+   * Written against `runPolicy` rather than against the viewer's own file, because the point is the
+   * CONTRACT — anything that drives a car must go through the actuator model — and a test that imported
+   * the viewer would only cover the viewer.
+   */
+  const track = buildCircuitByKey("club")!;
+  const genes = randomGenes(seeded(4242));
+
+  const distanceOver = (useSmoothed: boolean, seconds: number): number => {
+    const driver = createDriver(genes, seeded(7));
+    const scratch = { car: createCarState(), observation: createObservation(), controls: controls() };
+    return runPolicy(
+      (observation, out) => {
+        if (useSmoothed) {
+          const applied = driveSmoothed(driver, observation, DT);
+          out.throttle = applied.throttle;
+          out.brake = applied.brake;
+          out.steer = applied.steer;
+        } else {
+          // What the viewer used to do: raw intent, applied immediately.
+          drive(driver, observation, out);
+        }
+      },
+      track,
+      { seconds },
+      scratch,
+    ).distance;
+  };
+
+  const smoothed = distanceOver(true, 25);
+  const raw = distanceOver(false, 25);
+  assert.ok(
+    Math.abs(smoothed - raw) > 1,
+    `bypassing the actuator model must change how far the car gets: ` +
+      `through driveSmoothed ${smoothed.toFixed(1)} m, through drive ${raw.toFixed(1)} m. ` +
+      `If these agree, this test has stopped detecting the fault it exists for.`,
+  );
 });

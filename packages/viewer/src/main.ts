@@ -34,7 +34,7 @@ import {
 } from "../../engine/src/track.ts";
 import { createTiming, updateTiming, formatTime } from "../../engine/src/timing.ts";
 import { gripNoiseAt } from "../../engine/src/rng.ts";
-import { createDriver, drive, PARAMETER_COUNT, type Driver } from "../../engine/src/driver.ts";
+import { createDriver, driveSmoothed, PARAMETER_COUNT, type Driver } from "../../engine/src/driver.ts";
 import { createObservation, observe } from "../../engine/src/sense.ts";
 import { tireForces } from "../../engine/src/tire.ts";
 
@@ -84,6 +84,15 @@ const car: CarState = createCarState();
 const params = DEFAULT_CAR_PARAMS;
 const stepContext: StepContext = { ...CLEAN_AIR };
 
+/*
+ * The viewer's timestep, which must equal the engine's `DT`.
+ *
+ * Declared here rather than imported because `environment.ts` is the evaluation harness and drags in
+ * the trainer's machinery, which has no business in a browser bundle. The duplication is the price of
+ * that, and it is a real risk: the driver's steering response is integrated per tick, so a viewer
+ * running a different timestep would drive the same driver differently. If the engine's timestep
+ * changes, this must change with it.
+ */
 const DT = 1 / 60;
 const TRAIL_LENGTH = 220;
 const trail: Array<{ x: number; y: number }> = [];
@@ -673,10 +682,28 @@ const updateDriverPanel = (): void => {
 const readAiInputs = (): void => {
   if (!driver) return;
   observe(observation, car, track, lastProjectedS);
-  drive(driver, observation, aiControls);
-  car.throttle = aiControls.throttle;
-  car.brake = aiControls.brake;
-  car.steerCommand = aiControls.steer;
+  /*
+   * `driveSmoothed`, NOT `drive`, and the difference is the whole reason the viewer used to show a car
+   * that would not drive.
+   *
+   * `drive` writes the network's raw intent straight to the controls. The trainer never does that: it
+   * calls `driveSmoothed`, which puts the intent through the pedal lag and the second-order steering
+   * response that the driver is TRAINED AGAINST. Taking the raw output means the car receives commands
+   * with no actuator delay at all — a network that learned to hold a line with a nine-radian-per-second
+   * steering response suddenly gets its every twitch applied instantly.
+   *
+   * Measured on the same genes over ninety seconds of the club circuit:
+   *
+   *     trainer (driveSmoothed)   peak 23.2 m/s, on the circuit 85 per cent
+   *     viewer  (drive)           peak  8.1 m/s, on the circuit 65 per cent
+   *
+   * The same car, three times slower and wandering off the road — which reads as a driver doing donuts
+   * when it is nothing of the sort. See `docs/KNOWN_ISSUES.md`.
+   */
+  const applied = driveSmoothed(driver, observation, DT);
+  car.throttle = applied.throttle;
+  car.brake = applied.brake;
+  car.steerCommand = applied.steer;
 };
 
 const readInputs = (): void => {

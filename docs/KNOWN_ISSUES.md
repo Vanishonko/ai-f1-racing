@@ -116,36 +116,45 @@ an "after" of 582 m was entirely this. Take a copy before comparing anything.
 
 ---
 
-## The viewer and the trainer drive the same driver differently
+## The viewer and the trainer drove the same driver differently — FIXED
 
-**Found:** the club-circuit elite completes three quarters of a lap of Spa and averages 105 km/h when run
-by the trainer's evaluation loop, and does 0 km/h in the browser on the same circuit with the same
-parameters.
+**Found:** the club-circuit elite completed three quarters of a lap of Spa and averaged 105 km/h under the
+trainer's loop and did 0 km/h in the browser on the same circuit with the same parameters. It resurfaced
+as "they're just doing donuts at the finish line".
 
-**Reproduced outside the browser.** Copying the viewer's loop exactly — `observe`, then `drive`, then
-`stepCar`, feeding the observation's own distance back as the projection hint — gives the same failure:
-throttle climbs to 0.87 on the first tick and collapses to 0.00 by five seconds, with the steering
-slamming between full left and full right. The trainer's loop over the same driver and circuit holds
-105 km/h with 86 per cent of the run on the circuit.
+**The cause was one function call, and the previous diagnosis was wrong.** The recorded suspicion was that
+the two loops seeded the track projection differently. They do differ there, and that was not it:
 
-**What differs, and where to look.** The two loops agree on the physics and the network; they differ in
-how the track projection is seeded and carried. The trainer gets its start state from a cached function
-that computes the heading once per circuit, while the viewer places the car with `pointAtDistance` and
-carries `lastProjectedS` separately. If the hint passed to `observe` disagrees with where the car actually
-is, `projectToTrackNear` searches the wrong region and every ray reports the wrong distance — which is
-exactly the symptom, because the driver's first action is to steer hard on bad information and it never
-recovers.
+    const readAiInputs = (): void => {
+      observe(observation, car, track, lastProjectedS);
+      drive(driver, observation, aiControls);   // <-- raw intent
 
-**Why it matters beyond the viewer.** Anything that drives a car outside `runDriver` — the viewer, the
-replay button, any future tool — has to reproduce the trainer's loop precisely or it is testing a
-different driver. The fix is to move the loop into one place that both use, rather than to correct the
-viewer's copy.
+The trainer never calls `drive`. It calls `driveSmoothed`, which writes the network's intent to
+`driver.intent` and then runs `smoothControls` — the pedal lag and the second-order steering response the
+driver is TRAINED AGAINST. The viewer was taking the raw output and applying it directly, so a network
+that learned to hold a line against a nine-radian-per-second steering response had its every twitch
+applied instantly, with no actuator delay anywhere.
 
-**Note that the trainer is the correct one:** it is the loop the search is scored in, so if the two ever
-disagree the trainer is the definition.
+**Measured, same genes, ninety seconds of the club circuit:**
+
+    trainer (driveSmoothed)   peak 23.2 m/s   on the circuit 85 per cent
+    viewer  (drive)           peak  8.1 m/s   on the circuit 65 per cent
+
+Three times slower and wandering off the road, which reads exactly like a driver doing donuts. It never
+was one.
+
+**Fixed** by calling `driveSmoothed` in the viewer. The two loops now agree **bit-identically** — same
+distance, same peak speed, over 30 s and 90 s, to full double precision. Verified by the same harness that
+demonstrated the fault.
+
+**What is still different, and is now known not to matter for this:** the viewer seeds `observe` with its
+own `lastProjectedS` and uses a 60 m projection window where the trainer uses the 40 m default, and the
+viewer's `DT` is a local copy of the engine's. None of those changed the result once the controls were
+right. The remaining risk is that any future tool driving a car outside `runDriver` must reproduce the
+trainer's loop, and the durable fix is still to move that loop into one shared place — but the "viewer
+shows a different driver" bug is closed.
 
 ---
-
 
 ## The car spins where it should understeer
 

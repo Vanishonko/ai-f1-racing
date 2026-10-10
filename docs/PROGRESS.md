@@ -115,6 +115,46 @@ Determinism lint: **clean** (`pnpm run lint:determinism`).
 
 ## Log
 
+### 2026-10-10 — The viewer was showing a driver that was never trained
+
+Reported as "they're just doing donuts at the finish line". They were not. The viewer and the trainer
+were driving the same genes differently, and the cause was one function call.
+
+The trainer calls `driveSmoothed`, which writes the network's intent and then runs `smoothControls` — the
+pedal lag and the second-order steering response the driver is TRAINED AGAINST. The viewer called `drive`
+and applied the raw intent directly, so a network that learned to hold a line against a nine-radian-per-
+second steering response had its every twitch applied instantly, with no actuator delay anywhere.
+
+    trainer (driveSmoothed)   peak 23.2 m/s   on the circuit 85 per cent, 90 s
+    viewer  (drive)           peak  8.1 m/s   on the circuit 65 per cent, 90 s
+
+The same car, three times slower and wandering off the road. That reads as a driver doing donuts, and it
+is nothing of the sort — which is why the earlier diagnosis, that the two loops seeded the track
+projection differently, was wrong. They do differ there and it was not the cause.
+
+Fixed by calling `driveSmoothed` in the viewer. The loops now agree bit-identically — same distance, same
+peak speed, over 30 s and 90 s, to full double precision — verified by the same harness that demonstrated
+the fault.
+
+**Guarded at two levels**, because the first guard alone would not have caught it. One test asserts the
+smoothed controls differ from the raw intent in a single tick; that one would have passed happily while
+the viewer stayed broken, since it never drives a car. The second drives a car both ways through
+`runPolicy` and requires the results to diverge, which is the contract that was actually violated:
+anything driving a car must go through the actuator model. It is written against `runPolicy` rather than
+against the viewer's file, so it covers every future tool and not just this one.
+
+**Two traps recorded while chasing this**, both of which cost real time:
+
+  * `checkpoints/club.json` is overwritten by a running trainer. Comparing a measurement taken before
+    starting a run against one taken after compares two different drivers, and it looks exactly like a
+    regression — a "before" of 3,543 m against an "after" of 582 m was entirely this, and it sent the
+    investigation after a performance optimisation that was innocent.
+  * A trace that reads `car.heading` in the policy callback reports the value from BEFORE the first
+    physics step, because `runPolicy` initialises the car inside itself. That made a standing start look
+    like a car snapping through 180 degrees in one tick, which is impossible and was almost chased as a
+    physics bug.
+
+
 ### 2026-10-10 — The start line was inside a hairpin
 
 Pointed out that the drivers were missing the start of the lap because there is a hairpin there. Measured,
