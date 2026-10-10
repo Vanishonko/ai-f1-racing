@@ -594,12 +594,28 @@ export const runPolicy = (
       const index = nextCheckpoint % checkpointCount;
       if (speedNow > checkpointBestSpeed[index]!) checkpointBestSpeed[index] = speedNow;
 
-      const target = checkpointAt(nextCheckpoint);
       /*
-       * `distance` is monotonic along the lap, so a checkpoint counts when the car has travelled past
-       * it. Requiring the CORRECT next one is what makes them directional: a car that reverses over a
-       * line it has already crossed does not get it again, and a car that cuts the infield to reach a
-       * later one does not skip the earlier ones.
+       * THE TARGET CARRIES ITS LAP WITH IT, and forgetting that broke checkpoints entirely from the
+       * second lap onwards.
+       *
+       * `car.distance` is MONOTONIC — it accumulates across laps rather than resetting at the line — so
+       * it passes the last checkpoint's position on lap one and keeps going. The index wraps to zero, but
+       * the target was being read as `positions[0]`, which the car passed three and a half kilometres
+       * ago. The condition was therefore true on EVERY SUBSEQUENT TICK.
+       *
+       * Measured: a two-lap run recorded 5,640 checkpoints passed and earned ZERO credit, because the
+       * index was advancing thousands of times per lap and every sample it took was of the same few
+       * metres of track. Over four laps it recorded 16,239. The reward had stopped measuring anything.
+       *
+       * Adding the lap number back onto the position gives a target that keeps rising as the car goes
+       * round, so a checkpoint counts exactly once per lap as intended.
+       */
+      const lapOffset = Math.floor(nextCheckpoint / checkpointCount) * track.length;
+      const target = checkpointAt(nextCheckpoint) + lapOffset;
+      /*
+       * Requiring the CORRECT next one is what makes them directional: a car that reverses over a line
+       * it has already crossed does not get it again, and a car that cuts the infield to reach a later
+       * one does not skip the earlier ones.
        */
       if (car.distance >= target) {
         checkpointsPassed++;

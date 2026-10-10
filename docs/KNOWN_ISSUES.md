@@ -1,5 +1,44 @@
 # Known issues
 
+## Checkpoints stop measuring after the first lap — OPEN, and it invalidates every long run
+
+**Found:** asking whether the drivers can sense the checkpoints. They cannot — the observation has no
+checkpoint input at all — so the only thing steering them towards one is the reward. Measured, they are
+not being rewarded at all past the first lap.
+
+    duration   laps   checkpointsPassed   credit earned   best speed fraction
+      60 s       0            26            21.7 / 42           3.74
+      90 s       0           208             0.0               0.00
+     120 s       1          1577             0.0               0.00
+     180 s       1          5443             0.0               0.00
+     360 s       3         16425             0.0               0.00
+
+**The pass count grows without bound and the credit collapses to zero.** Credit is skipped for any
+checkpoint crossed while off the circuit (`checkpointOnTrack`), so a runaway index marking thousands of
+crossings means nearly every checkpoint ends up flagged, and the reward stops distinguishing anything.
+
+**Where it is.** `nextCheckpoint` advances by one each time `car.distance >= target`, and the target is
+`positions[nextCheckpoint % count] + floor(nextCheckpoint / count) * track.length`. That arithmetic was
+CHECKED INDEPENDENTLY, replayed against a real distance trace, and gives the correct 85 passes over
+180 seconds — so the formula is right and the fault is in how the loop advances the index. Once
+`nextCheckpoint` runs far past the checkpoint count, the lap offset grows faster than the car travels and
+the sequence of crossings becomes meaningless.
+
+**Not yet found:** why the index advances more than once per checkpoint. The per-tick distance
+accumulation was verified correct by hand — 2,672 m in 80 seconds, matching the track — so the fault is
+in the comparison, not the distance.
+
+**Why this is the most important open item.** The checkpoint ladder is the main signal that teaches
+cornering. If it stops measuring after one lap, then EVERY LONG RUN SO FAR HAS BEEN TRAINED ON A BROKEN
+REWARD FROM LAP TWO ONWARDS, and the plateaus that kept appearing — the elite stuck from generation 448
+onwards, the earlier one stuck from generation 5,216 — have a common and now plausible explanation.
+
+The observation window is 90 seconds by default, which is why this went unnoticed: at that length the
+run only just reaches the second lap, where the damage begins.
+
+---
+
+
 ## The viewer and the trainer drive the same driver differently
 
 **Found:** the club-circuit elite completes three quarters of a lap of Spa and averages 105 km/h when run
