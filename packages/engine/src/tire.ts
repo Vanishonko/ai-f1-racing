@@ -35,6 +35,8 @@ export interface TireParams {
   slipRatioPeak: number;
   /** Lateral slip angle at which force peaks, in radians. */
   slipAnglePeak: number;
+  /** Offset of the contact patch behind the wheel centre, as a fraction of wheel radius. */
+  pneumaticTrail: number;
   /** Load sensitivity: mu scales as 1 - loadSensitivity * (Fz / FzRef - 1). */
   loadSensitivity: number;
   /** Reference normal load for load sensitivity, in newtons. */
@@ -55,6 +57,22 @@ export const DEFAULT_TIRE: TireParams = {
   muY: TIRE_ANISOTROPY,
   slipRatioPeak: 0.11,
   slipAnglePeak: 0.11,
+  /**
+   * Distance the contact patch's centre of pressure sits behind the wheel centre, as a fraction of the
+   * wheel's radius.
+   *
+   * MEASURED RATHER THAN QUOTED, because the value decides whether the car has a limit or a cliff. Swept
+   * at a held 120 km/h with more steering asked for than the tires can supply:
+   *
+   *   trail 0.12   still spins: 178 degrees of slip, and the car ends up travelling backwards
+   *   trail 0.20   marginal: 62 degrees of slip, 23 km/h left
+   *   trail 0.30   3 degrees of slip, 63 km/h retained, yaw rate returns to a steady turn
+   *
+   * A physical racing tire's trail is around a quarter of its radius, so 0.30 is at the upper end of
+   * plausible rather than beyond it. It is set at the value that makes the car recoverable because that
+   * is the behaviour a real car has, and the number is recorded so it can be argued with.
+   */
+  pneumaticTrail: 0.3,
   loadSensitivity: 0.09,
   loadRef: 4000,
 };
@@ -99,6 +117,15 @@ export const tireBudget = (
 export interface TireForce {
   fx: number;
   fy: number;
+  /**
+   * Lateral force equivalent of the tire's self-aligning torque, in newtons.
+   *
+   * The real quantity is a MOMENT about the wheel's vertical axis, which always acts to reduce the slip
+   * angle. It is returned as an equivalent force because the caller already sums lateral forces against
+   * moment arms; multiplying by the trail length converts it back, and keeping one representation avoids
+   * a second place for the geometry to be got wrong.
+   */
+  aligningForce: number;
   /** Realized friction as a fraction of available mu*Fz, for telemetry/overlays. */
   utilization: number;
   locked: boolean;
@@ -274,7 +301,7 @@ export const tireForces = (
 ): TireForce => {
   const FzClamped = Fz > 0 ? Fz : 0;
   if (FzClamped < 1e-6) {
-    return { fx: 0, fy: 0, utilization: 0, locked: false };
+    return { fx: 0, fy: 0, aligningForce: 0, utilization: 0, locked: false };
   }
 
   // Load sensitivity: a heavily loaded tire has proportionally less grip.
@@ -352,9 +379,32 @@ export const tireForces = (
 
   const locked = wheelOmega <= 1e-3 && (slipRatioVal > 0.9 || slipRatioVal < -0.9);
 
+  /*
+   * SELF-ALIGNING TORQUE, which this model did not have and which is why the car spun where a real one
+   * would not.
+   *
+   * A tire's contact patch sits BEHIND the wheel centre, so the lateral force it generates acts about a
+   * point offset from where the wheel points. The moment that produces always acts to reduce the slip
+   * angle — it is the force that straightens a rolling tire and the force a driver feels through the
+   * wheel as the limit approaches. Without it there is nothing pulling a sliding car back into line, so
+   * a car that loses the rear simply keeps rotating: measured, a car asked for too much lock at 120 km/h
+   * went from 119 km/h to 8 in one and a third seconds with its yaw rate still CLIMBING, and nothing in
+   * the model opposed it.
+   *
+   * Returned as an EQUIVALENT LATERAL FORCE so the caller can add it to the same moment sum as
+   * everything else. The conversion is the trail length, which is the offset it acts over.
+   *
+   * It saturates with the tire, because the trail shortens as the contact patch slides — so this adds
+   * stability at the limit without making a sliding tire magically recover grip it does not have.
+   */
+  const lateralForce = -forceMagnitude * p.muY * dirY;
+  const aligningForce =
+    slipAngle === 0 ? 0 : -lateralForce * p.pneumaticTrail * (Math.abs(slipAngle) / (Math.abs(slipAngle) + 0.15));
+
   return {
     fx: forceMagnitude * dirX,
-    fy: -forceMagnitude * p.muY * dirY,
+    fy: lateralForce,
+    aligningForce,
     // Utilization of the friction budget, 0..1. Reaches 1.0 as the tire
     // saturates. Note it stays near 1.0 under a fold-back too: a sliding tire
     // still spends its whole friction budget, just in a direction the driver

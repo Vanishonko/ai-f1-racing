@@ -667,7 +667,14 @@ export const stepCar = (
 
       stepLong += fxBody;
       stepLat += fyBody;
-      stepYawMoment += cgOffset * fyBody;
+      /*
+       * The tire's own moment about the wheel, added as an equivalent lateral force.
+       *
+       * It is a pure YAW moment, so it does not appear in the longitudinal or lateral sums — a force that
+       * turns the car without pushing it anywhere. See `tireForces`: this is the term that straightens a
+       * sliding tire, and its absence was why the car spun where a real one recovers.
+       */
+      stepYawMoment += cgOffset * fyBody + force.aligningForce;
 
       if (isFront) {
         if (force.locked) state.frontLockTime += substep;
