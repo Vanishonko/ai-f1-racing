@@ -1,5 +1,36 @@
 # Known issues
 
+## The viewer and the trainer drive the same driver differently
+
+**Found:** the club-circuit elite completes three quarters of a lap of Spa and averages 105 km/h when run
+by the trainer's evaluation loop, and does 0 km/h in the browser on the same circuit with the same
+parameters.
+
+**Reproduced outside the browser.** Copying the viewer's loop exactly — `observe`, then `drive`, then
+`stepCar`, feeding the observation's own distance back as the projection hint — gives the same failure:
+throttle climbs to 0.87 on the first tick and collapses to 0.00 by five seconds, with the steering
+slamming between full left and full right. The trainer's loop over the same driver and circuit holds
+105 km/h with 86 per cent of the run on the circuit.
+
+**What differs, and where to look.** The two loops agree on the physics and the network; they differ in
+how the track projection is seeded and carried. The trainer gets its start state from a cached function
+that computes the heading once per circuit, while the viewer places the car with `pointAtDistance` and
+carries `lastProjectedS` separately. If the hint passed to `observe` disagrees with where the car actually
+is, `projectToTrackNear` searches the wrong region and every ray reports the wrong distance — which is
+exactly the symptom, because the driver's first action is to steer hard on bad information and it never
+recovers.
+
+**Why it matters beyond the viewer.** Anything that drives a car outside `runDriver` — the viewer, the
+replay button, any future tool — has to reproduce the trainer's loop precisely or it is testing a
+different driver. The fix is to move the loop into one place that both use, rather than to correct the
+viewer's copy.
+
+**Note that the trainer is the correct one:** it is the loop the search is scored in, so if the two ever
+disagree the trainer is the definition.
+
+---
+
+
 ## The car spins where it should understeer
 
 **Found:** asking for more steering lock than the tires can supply. A real car understeers — the front

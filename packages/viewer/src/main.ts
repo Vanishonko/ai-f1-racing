@@ -408,15 +408,28 @@ const loadDriver = (data: unknown, circuitName: string): string | null => {
 /** Fetches the checkpoint for the current circuit, if one has been trained. */
 const fetchDriverFor = async (circuitKey: string): Promise<void> => {
   const status = document.getElementById("ai-status");
+  /*
+   * WHICH CHECKPOINT TO LOAD, which is not necessarily the one for the current circuit.
+   *
+   * The observation is track-relative and normalised precisely so a driver trained on one circuit can
+   * drive another — measured, an elite trained only on the club circuit completes a full lap of Baku and
+   * covers three quarters of Spa. Watching that requires loading one circuit's driver while standing on
+   * a different circuit, so the selector below chooses the source independently of the track.
+   */
+  const source = (document.getElementById("driver-source") as HTMLSelectElement | null)?.value;
+  const from = source && source !== "" ? source : circuitKey;
   try {
-    const response = await fetch(`/checkpoints/${circuitKey}.json`);
+    const response = await fetch(`/checkpoints/${from}.json`);
     if (!response.ok) {
       driver = null;
-      if (status) status.textContent = "no checkpoint for this circuit";
+      if (status) status.textContent = `no checkpoint for ${from}`;
       return;
     }
-    const error = loadDriver(await response.json(), circuitKey);
-    if (status) status.textContent = error ?? "trained driver loaded";
+    const error = loadDriver(await response.json(), from);
+    if (status) {
+      status.textContent =
+        error ?? (from === circuitKey ? "trained driver loaded" : `driving the ${from} driver here`);
+    }
   } catch {
     driver = null;
     driverInfo = null;
@@ -737,6 +750,22 @@ const setupTrackSelector = (): void => {
     }
   });
 };
+/**
+ * Loads the driver from whichever circuit the selector names, and remembers the choice.
+ *
+ * A driver is per-circuit by name but universal in what it can do, so this is how the transfer is
+ * watched: pick a source circuit, pick a different track, and see whether it drives.
+ */
+const setupDriverSource = (): void => {
+  const select = document.getElementById("driver-source") as HTMLSelectElement | null;
+  if (!select) return;
+  select.value = localStorage.getItem("driver-source") ?? "";
+  select.addEventListener("change", () => {
+    localStorage.setItem("driver-source", select.value);
+    void fetchDriverFor(currentCircuitKey());
+  });
+};
+
 const setupDriverToggle = (): void => {
   const toggle = document.getElementById("ai-drive") as HTMLInputElement | null;
   if (!toggle) return;
@@ -765,6 +794,7 @@ const setupReplayButton = (): void => {
 };
 
 setupTrackSelector();
+setupDriverSource();
 setupDriverToggle();
 setupReplayButton();
 void fetchDriverFor(DEFAULT_TRACK_KEY);

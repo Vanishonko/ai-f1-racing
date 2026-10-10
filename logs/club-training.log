@@ -6,174 +6,228 @@ checkpointing to /Users/vanish/Documents/ai f1/checkpoints/club.json
 
 evaluating across 8 worker threads (0 cores left free)
 gen      best (m/s)   mean dist   on track    elapsed
-  WARNING after generation 1: the search centre (0) has fallen far below its best (246); it has wandered into a worse region
-  WARNING after generation 2: the search centre (239) has fallen far below its best (1333); it has wandered into a worse region
-  WARNING after generation 3: the search centre (180) has fallen far below its best (1333); it has wandered into a worse region
-  WARNING after generation 5: the search centre (717) has fallen far below its best (2114); it has wandered into a worse region
-  WARNING after generation 6: the search centre (571) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 7: the search centre (307) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 8: the search centre (516) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 9: the search centre (526) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 10: the search centre (306) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 11: the search centre (358) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 12: the search centre (896) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 13: the search centre (920) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 14: the search centre (1350) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 15: the search centre (1013) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 16: the search centre (1026) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 17: the search centre (897) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 18: the search centre (639) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 19: the search centre (833) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 20: the search centre (966) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 21: the search centre (1894) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 22: the search centre (1204) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 23: the search centre (1200) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 24: the search centre (524) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 25: the search centre (660) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 26: the search centre (1557) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 28: the search centre (341) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 29: the search centre (780) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 30: the search centre (556) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 31: the search centre (1091) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 32: the search centre (1086) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 33: the search centre (1447) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 34: the search centre (327) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 35: the search centre (1410) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 36: the search centre (962) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 37: the search centre (1731) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 38: the search centre (1184) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 39: the search centre (1148) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 40: the search centre (1009) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 41: the search centre (1858) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 43: the search centre (1191) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 45: the search centre (736) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 46: the search centre (457) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 47: the search centre (1075) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 48: the search centre (1268) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 49: the search centre (1240) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 50: the search centre (936) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 51: the search centre (888) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 52: the search centre (1154) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 53: the search centre (1631) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 54: the search centre (1055) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 55: the search centre (698) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 56: the search centre (1171) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 58: the search centre (1259) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 59: the search centre (1006) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 60: the search centre (469) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 61: the search centre (1411) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 63: the search centre (601) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 64: the search centre (1670) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 65: the search centre (878) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 66: the search centre (1633) has fallen far below its best (3835); it has wandered into a worse region
-  WARNING after generation 68: the search centre (1921) has fallen far below its best (3938); it has wandered into a worse region
-  WARNING after generation 69: the search centre (1328) has fallen far below its best (3938); it has wandered into a worse region
-  WARNING after generation 71: the search centre (271) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 72: the search centre (120) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 74: the search centre (1833) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 75: the search centre (1869) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 76: the search centre (1364) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 77: the search centre (911) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 78: the search centre (207) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 80: the search centre (2049) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 81: the search centre (1365) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 82: the search centre (1194) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 83: the search centre (1041) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 84: the search centre (651) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 85: the search centre (706) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 86: the search centre (795) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 87: the search centre (866) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 88: the search centre (1944) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 89: the search centre (835) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 90: the search centre (481) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 91: the search centre (815) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 92: the search centre (300) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 93: the search centre (338) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 94: the search centre (366) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 95: the search centre (1484) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 97: the search centre (1084) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 98: the search centre (1429) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 99: the search centre (1158) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 100: the search centre (662) has fallen far below its best (4388); it has wandered into a worse region
- 100       4387.6          698        33%    0h 02m 00s
-  WARNING after generation 101: the search centre (638) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 102: the search centre (896) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 103: the search centre (859) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 104: the search centre (846) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 105: the search centre (420) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 106: the search centre (201) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 107: the search centre (194) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 108: the search centre (809) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 109: the search centre (892) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 110: the search centre (1093) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 111: the search centre (1147) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 112: the search centre (1099) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 113: the search centre (1149) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 115: the search centre (1922) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 116: the search centre (2043) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 117: the search centre (1476) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 118: the search centre (859) has fallen far below its best (4388); it has wandered into a worse region
-  WARNING after generation 122: the search centre (1757) has fallen far below its best (4838); it has wandered into a worse region
-  WARNING after generation 123: the search centre (1918) has fallen far below its best (4838); it has wandered into a worse region
-  WARNING after generation 124: the search centre (1415) has fallen far below its best (4838); it has wandered into a worse region
-  WARNING after generation 125: the search centre (2239) has fallen far below its best (4838); it has wandered into a worse region
-  WARNING after generation 126: the search centre (2348) has fallen far below its best (4838); it has wandered into a worse region
-  WARNING after generation 131: the search centre (1905) has fallen far below its best (4879); it has wandered into a worse region
-  WARNING after generation 132: the search centre (1388) has fallen far below its best (4879); it has wandered into a worse region
-  WARNING after generation 133: the search centre (1730) has fallen far below its best (5292); it has wandered into a worse region
-  WARNING after generation 136: the search centre (957) has fallen far below its best (5292); it has wandered into a worse region
-  WARNING after generation 138: the search centre (2318) has fallen far below its best (5292); it has wandered into a worse region
-  WARNING after generation 139: the search centre (1519) has fallen far below its best (5292); it has wandered into a worse region
-  WARNING after generation 144: the search centre (1968) has fallen far below its best (5292); it has wandered into a worse region
-  WARNING after generation 147: the search centre (1130) has fallen far below its best (5292); it has wandered into a worse region
-  WARNING after generation 150: the search centre (2234) has fallen far below its best (5292); it has wandered into a worse region
-  WARNING after generation 155: the search centre (1708) has fallen far below its best (5292); it has wandered into a worse region
-  WARNING after generation 157: the search centre (1239) has fallen far below its best (5292); it has wandered into a worse region
-  WARNING after generation 158: the search centre (1920) has fallen far below its best (5292); it has wandered into a worse region
-  WARNING after generation 159: the search centre (1986) has fallen far below its best (5292); it has wandered into a worse region
-  WARNING after generation 160: the search centre (2102) has fallen far below its best (5292); it has wandered into a worse region
-  WARNING after generation 166: the search centre (1436) has fallen far below its best (5292); it has wandered into a worse region
-  WARNING after generation 177: the search centre (456) has fallen far below its best (5292); it has wandered into a worse region
-  WARNING after generation 181: the search centre (493) has fallen far below its best (5292); it has wandered into a worse region
-  WARNING after generation 182: the search centre (480) has fallen far below its best (5292); it has wandered into a worse region
-  WARNING after generation 183: the search centre (2247) has fallen far below its best (5292); it has wandered into a worse region
-  WARNING after generation 184: the search centre (455) has fallen far below its best (5292); it has wandered into a worse region
- 200       5292.1         1029        53%    0h 04m 04s
-  WARNING after generation 212: the search centre (2317) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 216: the search centre (2666) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 218: the search centre (2068) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 219: the search centre (2215) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 224: the search centre (820) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 225: the search centre (574) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 226: the search centre (537) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 227: the search centre (445) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 231: the search centre (2458) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 233: the search centre (1925) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 235: the search centre (1651) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 236: the search centre (2202) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 237: the search centre (2514) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 239: the search centre (1179) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 240: the search centre (2260) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 241: the search centre (2005) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 242: the search centre (1846) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 248: the search centre (2690) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 254: the search centre (1219) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 265: the search centre (1023) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 267: the search centre (1655) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 268: the search centre (2100) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 270: the search centre (2601) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 271: the search centre (2703) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 277: the search centre (1275) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 279: the search centre (1126) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 280: the search centre (2239) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 282: the search centre (1760) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 286: the search centre (1670) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 288: the search centre (1162) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 290: the search centre (1770) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 292: the search centre (2587) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 294: the search centre (2547) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 296: the search centre (437) has fallen far below its best (5490); it has wandered into a worse region
- 300       5490.0         1189        20%    0h 06m 15s
-  WARNING after generation 302: the search centre (2656) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 308: the search centre (2655) has fallen far below its best (5490); it has wandered into a worse region
-  WARNING after generation 309: the search centre (738) has fallen far below its best (5490); it has wandered into a worse region
+  WARNING after generation 1: the search centre (0) has fallen far below its best (358); it has wandered into a worse region
+  WARNING after generation 2: the search centre (351) has fallen far below its best (1147); it has wandered into a worse region
+  WARNING after generation 3: the search centre (393) has fallen far below its best (3779); it has wandered into a worse region
+  WARNING after generation 4: the search centre (300) has fallen far below its best (6716); it has wandered into a worse region
+  WARNING after generation 5: the search centre (849) has fallen far below its best (6716); it has wandered into a worse region
+  WARNING after generation 6: the search centre (142) has fallen far below its best (6716); it has wandered into a worse region
+  WARNING after generation 7: the search centre (175) has fallen far below its best (6716); it has wandered into a worse region
+  WARNING after generation 8: the search centre (765) has fallen far below its best (6716); it has wandered into a worse region
+  WARNING after generation 9: the search centre (784) has fallen far below its best (6716); it has wandered into a worse region
+  WARNING after generation 10: the search centre (670) has fallen far below its best (6716); it has wandered into a worse region
+  WARNING after generation 11: the search centre (181) has fallen far below its best (6716); it has wandered into a worse region
+  WARNING after generation 14: the search centre (2293) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 15: the search centre (769) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 16: the search centre (591) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 17: the search centre (2151) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 18: the search centre (2373) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 19: the search centre (3273) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 20: the search centre (360) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 21: the search centre (1309) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 22: the search centre (2549) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 24: the search centre (4050) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 26: the search centre (1894) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 28: the search centre (2124) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 29: the search centre (1329) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 30: the search centre (2859) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 31: the search centre (1817) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 32: the search centre (3286) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 33: the search centre (3171) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 34: the search centre (2272) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 35: the search centre (1707) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 36: the search centre (2603) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 37: the search centre (1389) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 38: the search centre (1736) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 39: the search centre (790) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 40: the search centre (1349) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 41: the search centre (1764) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 42: the search centre (811) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 43: the search centre (813) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 44: the search centre (1782) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 46: the search centre (700) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 47: the search centre (749) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 48: the search centre (980) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 49: the search centre (1255) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 50: the search centre (1522) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 51: the search centre (2824) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 52: the search centre (2965) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 53: the search centre (2471) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 54: the search centre (2560) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 55: the search centre (2513) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 56: the search centre (2351) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 57: the search centre (2297) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 58: the search centre (3041) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 59: the search centre (2556) has fallen far below its best (8240); it has wandered into a worse region
+  WARNING after generation 62: the search centre (3659) has fallen far below its best (9801); it has wandered into a worse region
+  WARNING after generation 64: the search centre (5371) has fallen far below its best (11614); it has wandered into a worse region
+  WARNING after generation 65: the search centre (4204) has fallen far below its best (11614); it has wandered into a worse region
+  WARNING after generation 66: the search centre (4345) has fallen far below its best (11614); it has wandered into a worse region
+  WARNING after generation 67: the search centre (5562) has fallen far below its best (11614); it has wandered into a worse region
+  WARNING after generation 68: the search centre (5283) has fallen far below its best (11614); it has wandered into a worse region
+  WARNING after generation 69: the search centre (5323) has fallen far below its best (11614); it has wandered into a worse region
+  WARNING after generation 70: the search centre (4158) has fallen far below its best (11614); it has wandered into a worse region
+  WARNING after generation 73: the search centre (1408) has fallen far below its best (11614); it has wandered into a worse region
+  WARNING after generation 74: the search centre (3491) has fallen far below its best (11614); it has wandered into a worse region
+  WARNING after generation 75: the search centre (3826) has fallen far below its best (11614); it has wandered into a worse region
+  WARNING after generation 76: the search centre (3555) has fallen far below its best (11614); it has wandered into a worse region
+  WARNING after generation 77: the search centre (3853) has fallen far below its best (11614); it has wandered into a worse region
+  WARNING after generation 78: the search centre (3860) has fallen far below its best (11614); it has wandered into a worse region
+  WARNING after generation 79: the search centre (5509) has fallen far below its best (11614); it has wandered into a worse region
+  WARNING after generation 80: the search centre (4489) has fallen far below its best (11614); it has wandered into a worse region
+  WARNING after generation 82: the search centre (3486) has fallen far below its best (11614); it has wandered into a worse region
+  WARNING after generation 84: the search centre (5695) has fallen far below its best (11614); it has wandered into a worse region
+  WARNING after generation 96: the search centre (7123) has fallen far below its best (16520); it has wandered into a worse region
+ 100      16519.7         2417        71%    0h 02m 27s
+  WARNING after generation 122: the search centre (3156) has fallen far below its best (16520); it has wandered into a worse region
+  WARNING after generation 123: the search centre (7141) has fallen far below its best (16520); it has wandered into a worse region
+  WARNING after generation 125: the search centre (2891) has fallen far below its best (16520); it has wandered into a worse region
+  WARNING after generation 129: the search centre (7509) has fallen far below its best (16520); it has wandered into a worse region
+  WARNING after generation 140: the search centre (6397) has fallen far below its best (16520); it has wandered into a worse region
+  WARNING after generation 141: the search centre (7525) has fallen far below its best (16520); it has wandered into a worse region
+  WARNING after generation 142: the search centre (7261) has fallen far below its best (16520); it has wandered into a worse region
+  WARNING after generation 145: the search centre (2914) has fallen far below its best (16520); it has wandered into a worse region
+  WARNING after generation 146: the search centre (1204) has fallen far below its best (16520); it has wandered into a worse region
+  WARNING after generation 147: the search centre (409) has fallen far below its best (16520); it has wandered into a worse region
+  WARNING after generation 148: the search centre (2873) has fallen far below its best (16520); it has wandered into a worse region
+  WARNING after generation 149: the search centre (7284) has fallen far below its best (16520); it has wandered into a worse region
+  WARNING after generation 150: the search centre (6171) has fallen far below its best (16520); it has wandered into a worse region
+  WARNING after generation 153: the search centre (4127) has fallen far below its best (16520); it has wandered into a worse region
+  WARNING after generation 154: the search centre (8151) has fallen far below its best (16520); it has wandered into a worse region
+  WARNING after generation 166: the search centre (7308) has fallen far below its best (16520); it has wandered into a worse region
+  WARNING after generation 172: the search centre (8107) has fallen far below its best (16520); it has wandered into a worse region
+  WARNING after generation 195: the search centre (6292) has fallen far below its best (16520); it has wandered into a worse region
+ 200      16519.7         2793        69%    0h 05m 18s
+  WARNING after generation 213: the search centre (6634) has fallen far below its best (18340); it has wandered into a worse region
+  WARNING after generation 247: the search centre (2176) has fallen far below its best (19126); it has wandered into a worse region
+ 300      23266.1         3025        72%    0h 08m 33s
+  WARNING after generation 335: the search centre (2913) has fallen far below its best (23266); it has wandered into a worse region
+  WARNING after generation 353: the search centre (2994) has fallen far below its best (23266); it has wandered into a worse region
+  WARNING after generation 354: the search centre (2953) has fallen far below its best (23266); it has wandered into a worse region
+  WARNING after generation 357: the search centre (6842) has fallen far below its best (23454); it has wandered into a worse region
+  WARNING after generation 358: the search centre (7142) has fallen far below its best (23454); it has wandered into a worse region
+  WARNING after generation 360: the search centre (8127) has fallen far below its best (23454); it has wandered into a worse region
+ 400      23454.4         3221        84%    0h 11m 51s
+  WARNING after generation 406: the search centre (1315) has fallen far below its best (23454); it has wandered into a worse region
+  WARNING after generation 466: the search centre (3216) has fallen far below its best (23663); it has wandered into a worse region
+  WARNING after generation 488: the search centre (878) has fallen far below its best (23663); it has wandered into a worse region
+ 500      23663.1         2992        83%    0h 15m 21s
+  WARNING after generation 520: the search centre (10359) has fallen far below its best (23663); it has wandered into a worse region
+  WARNING after generation 546: the search centre (8516) has fallen far below its best (23663); it has wandered into a worse region
+  WARNING after generation 550: the search centre (836) has fallen far below its best (23663); it has wandered into a worse region
+  WARNING after generation 551: the search centre (839) has fallen far below its best (23663); it has wandered into a worse region
+  WARNING after generation 555: the search centre (3170) has fallen far below its best (23663); it has wandered into a worse region
+  WARNING after generation 556: the search centre (3130) has fallen far below its best (23663); it has wandered into a worse region
+  WARNING after generation 582: the search centre (3098) has fallen far below its best (23663); it has wandered into a worse region
+  WARNING after generation 583: the search centre (3163) has fallen far below its best (23663); it has wandered into a worse region
+  WARNING after generation 584: the search centre (7644) has fallen far below its best (23663); it has wandered into a worse region
+  WARNING after generation 598: no improvement for 150 generations; the search is either finished or stuck
+  WARNING after generation 599: no improvement for 151 generations; the search is either finished or stuck
+  WARNING after generation 600: no improvement for 152 generations; the search is either finished or stuck
+ 600      23663.1         2890        82%    0h 18m 50s
+  WARNING after generation 601: no improvement for 153 generations; the search is either finished or stuck
+  WARNING after generation 602: no improvement for 154 generations; the search is either finished or stuck
+  WARNING after generation 603: no improvement for 155 generations; the search is either finished or stuck
+  WARNING after generation 604: no improvement for 156 generations; the search is either finished or stuck
+  WARNING after generation 605: no improvement for 157 generations; the search is either finished or stuck
+  WARNING after generation 606: no improvement for 158 generations; the search is either finished or stuck
+  WARNING after generation 607: no improvement for 159 generations; the search is either finished or stuck
+  WARNING after generation 608: no improvement for 160 generations; the search is either finished or stuck
+  WARNING after generation 609: no improvement for 161 generations; the search is either finished or stuck
+  WARNING after generation 610: no improvement for 162 generations; the search is either finished or stuck
+  WARNING after generation 611: no improvement for 163 generations; the search is either finished or stuck
+  WARNING after generation 612: no improvement for 164 generations; the search is either finished or stuck
+  WARNING after generation 613: no improvement for 165 generations; the search is either finished or stuck
+  WARNING after generation 614: no improvement for 166 generations; the search is either finished or stuck
+  WARNING after generation 615: no improvement for 167 generations; the search is either finished or stuck
+  WARNING after generation 616: no improvement for 168 generations; the search is either finished or stuck
+  WARNING after generation 617: no improvement for 169 generations; the search is either finished or stuck
+  WARNING after generation 618: no improvement for 170 generations; the search is either finished or stuck
+  WARNING after generation 619: no improvement for 171 generations; the search is either finished or stuck
+  WARNING after generation 620: the search centre (3580) has fallen far below its best (23663); it has wandered into a worse region
+  WARNING after generation 621: no improvement for 173 generations; the search is either finished or stuck
+  WARNING after generation 622: no improvement for 174 generations; the search is either finished or stuck
+  WARNING after generation 623: no improvement for 175 generations; the search is either finished or stuck
+  WARNING after generation 624: no improvement for 176 generations; the search is either finished or stuck
+  WARNING after generation 625: no improvement for 177 generations; the search is either finished or stuck
+  WARNING after generation 626: no improvement for 178 generations; the search is either finished or stuck
+  WARNING after generation 627: no improvement for 179 generations; the search is either finished or stuck
+  WARNING after generation 628: no improvement for 180 generations; the search is either finished or stuck
+  WARNING after generation 629: no improvement for 181 generations; the search is either finished or stuck
+  WARNING after generation 630: no improvement for 182 generations; the search is either finished or stuck
+  WARNING after generation 631: no improvement for 183 generations; the search is either finished or stuck
+  WARNING after generation 632: no improvement for 184 generations; the search is either finished or stuck
+  WARNING after generation 633: no improvement for 185 generations; the search is either finished or stuck
+  WARNING after generation 634: no improvement for 186 generations; the search is either finished or stuck
+  WARNING after generation 635: no improvement for 187 generations; the search is either finished or stuck
+  WARNING after generation 636: no improvement for 188 generations; the search is either finished or stuck
+  WARNING after generation 637: no improvement for 189 generations; the search is either finished or stuck
+  WARNING after generation 638: no improvement for 190 generations; the search is either finished or stuck
+  WARNING after generation 639: no improvement for 191 generations; the search is either finished or stuck
+  WARNING after generation 640: no improvement for 192 generations; the search is either finished or stuck
+  WARNING after generation 641: no improvement for 193 generations; the search is either finished or stuck
+  WARNING after generation 642: no improvement for 194 generations; the search is either finished or stuck
+  WARNING after generation 643: no improvement for 195 generations; the search is either finished or stuck
+  WARNING after generation 644: no improvement for 196 generations; the search is either finished or stuck
+  WARNING after generation 645: no improvement for 197 generations; the search is either finished or stuck
+  WARNING after generation 646: no improvement for 198 generations; the search is either finished or stuck
+  WARNING after generation 647: no improvement for 199 generations; the search is either finished or stuck
+  WARNING after generation 648: no improvement for 200 generations; the search is either finished or stuck
+  WARNING after generation 649: no improvement for 201 generations; the search is either finished or stuck
+  WARNING after generation 650: no improvement for 202 generations; the search is either finished or stuck
+  WARNING after generation 651: no improvement for 203 generations; the search is either finished or stuck
+  WARNING after generation 652: no improvement for 204 generations; the search is either finished or stuck
+  WARNING after generation 653: no improvement for 205 generations; the search is either finished or stuck
+  WARNING after generation 654: no improvement for 206 generations; the search is either finished or stuck
+  WARNING after generation 655: no improvement for 207 generations; the search is either finished or stuck
+  WARNING after generation 656: no improvement for 208 generations; the search is either finished or stuck
+  WARNING after generation 657: no improvement for 209 generations; the search is either finished or stuck
+  WARNING after generation 658: no improvement for 210 generations; the search is either finished or stuck
+  WARNING after generation 659: no improvement for 211 generations; the search is either finished or stuck
+  WARNING after generation 660: no improvement for 212 generations; the search is either finished or stuck
+  WARNING after generation 661: no improvement for 213 generations; the search is either finished or stuck
+  WARNING after generation 662: no improvement for 214 generations; the search is either finished or stuck
+  WARNING after generation 663: no improvement for 215 generations; the search is either finished or stuck
+  WARNING after generation 664: no improvement for 216 generations; the search is either finished or stuck
+  WARNING after generation 665: no improvement for 217 generations; the search is either finished or stuck
+  WARNING after generation 666: no improvement for 218 generations; the search is either finished or stuck
+  WARNING after generation 667: no improvement for 219 generations; the search is either finished or stuck
+  WARNING after generation 668: no improvement for 220 generations; the search is either finished or stuck
+  WARNING after generation 669: no improvement for 221 generations; the search is either finished or stuck
+  WARNING after generation 670: no improvement for 222 generations; the search is either finished or stuck
+  WARNING after generation 671: no improvement for 223 generations; the search is either finished or stuck
+  WARNING after generation 672: no improvement for 224 generations; the search is either finished or stuck
+  WARNING after generation 673: no improvement for 225 generations; the search is either finished or stuck
+  WARNING after generation 674: no improvement for 226 generations; the search is either finished or stuck
+  WARNING after generation 675: no improvement for 227 generations; the search is either finished or stuck
+  WARNING after generation 676: no improvement for 228 generations; the search is either finished or stuck
+  WARNING after generation 677: no improvement for 229 generations; the search is either finished or stuck
+  WARNING after generation 678: no improvement for 230 generations; the search is either finished or stuck
+  WARNING after generation 679: no improvement for 231 generations; the search is either finished or stuck
+  WARNING after generation 680: no improvement for 232 generations; the search is either finished or stuck
+  WARNING after generation 681: no improvement for 233 generations; the search is either finished or stuck
+  WARNING after generation 682: no improvement for 234 generations; the search is either finished or stuck
+  WARNING after generation 683: no improvement for 235 generations; the search is either finished or stuck
+  WARNING after generation 684: no improvement for 236 generations; the search is either finished or stuck
+  WARNING after generation 685: no improvement for 237 generations; the search is either finished or stuck
+  WARNING after generation 686: no improvement for 238 generations; the search is either finished or stuck
+  WARNING after generation 687: no improvement for 239 generations; the search is either finished or stuck
+  WARNING after generation 688: no improvement for 240 generations; the search is either finished or stuck
+  WARNING after generation 689: no improvement for 241 generations; the search is either finished or stuck
+  WARNING after generation 690: no improvement for 242 generations; the search is either finished or stuck
+  WARNING after generation 691: no improvement for 243 generations; the search is either finished or stuck
+  WARNING after generation 692: no improvement for 244 generations; the search is either finished or stuck
+  WARNING after generation 693: no improvement for 245 generations; the search is either finished or stuck
+  WARNING after generation 694: no improvement for 246 generations; the search is either finished or stuck
+  WARNING after generation 695: no improvement for 247 generations; the search is either finished or stuck
+  WARNING after generation 696: no improvement for 248 generations; the search is either finished or stuck
+  WARNING after generation 697: no improvement for 249 generations; the search is either finished or stuck
+  WARNING after generation 698: no improvement for 250 generations; the search is either finished or stuck
+  WARNING after generation 699: no improvement for 251 generations; the search is either finished or stuck
+  WARNING after generation 700: no improvement for 252 generations; the search is either finished or stuck
+ 700      23663.1         3163        83%    0h 22m 14s
+  WARNING after generation 701: no improvement for 253 generations; the search is either finished or stuck
+  WARNING after generation 702: no improvement for 254 generations; the search is either finished or stuck
+  WARNING after generation 703: no improvement for 255 generations; the search is either finished or stuck
+  WARNING after generation 704: no improvement for 256 generations; the search is either finished or stuck
+  WARNING after generation 705: no improvement for 257 generations; the search is either finished or stuck

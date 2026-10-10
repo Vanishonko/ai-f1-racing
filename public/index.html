@@ -179,6 +179,15 @@
     <section>
       <h1>Driver</h1>
       <label><input type="checkbox" id="ai-drive"> trained driver (wasd hands over)</label>
+      <!-- Which circuit to take the driver FROM, so a club-circuit driver can be watched at Spa. -->
+      <label for="driver-source">driver from</label>
+      <select id="driver-source">
+        <option value="">this circuit</option>
+        <option value="club">Club Circuit</option>
+        <option value="spa">Spa-Francorchamps</option>
+        <option value="baku">Baku City</option>
+        <option value="chicane">Chicane</option>
+      </select>
       <div class="row"><span id="ai-status">no checkpoint for this circuit</span></div>
       <div class="row"><span>trained to gen</span><span id="ai-gen">--</span></div>
       <div class="row"><span>its fitness</span><span id="ai-fitness">--</span></div>
