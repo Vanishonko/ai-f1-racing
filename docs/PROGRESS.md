@@ -115,6 +115,109 @@ Determinism lint: **clean** (`pnpm run lint:determinism`).
 
 ## Log
 
+### 2026-10-10 — The start line was inside a hairpin
+
+Pointed out that the drivers were missing the start of the lap because there is a hairpin there. Measured,
+and it was worse than "a hairpin near the line":
+
+    circuit   curvature at the line   radius      first corner   laps completed in 90 s
+    club                 0.0382        26 m          26 m              0
+    chicane              0.0031       323 m         135 m              0
+    baku                 0.0031       323 m           0 m              0
+    spa                  0.0028       357 m           0 m              0
+
+**Club's start line sat at the apex of a 26 m radius hairpin.** Cars are placed on the line at rest, so
+every run began with a standing start into a hairpin — the one corner a learning driver cannot take,
+standing between it and the entire rest of the lap, on every single run. Its drivers never completed a
+lap. Every checkpoint was measured from that standing start, and the lap reward, the objective the whole
+ladder anneals towards, was never once paid.
+
+**Fixed by moving the line, not the tarmac.** A circuit is a ring, so choosing a different index to
+begin at changes only which point is distance zero — the geometry, the corners and the lap length are
+untouched. This matters because the layouts are content that three previous attempts to "tidy" made
+worse; this is the one edit to a circuit that cannot alter its shape. Each line is now at the middle of
+its longest straight, which is where a real circuit puts it and for the same reason:
+
+    circuit   straight chosen        line at    curvature at the line   first corner
+    club      603 m, 2748-3350 m      3049 m          0.0032               301 m
+    chicane   965 m, 4151-5115 m      4633 m          0.0032               482 m
+    baku     1173 m, 5924-1090 m       503 m          0.0007               587 m
+    spa       756 m, 6323-66 m        6701 m          0.0001               378 m
+
+**Measured result on the same driver.** Club went from zero laps in ninety seconds to one, and from
+39.36 m/s to 40.93 m/s over three minutes: the car is now released onto 301 m of straight instead of into
+a hairpin, so it arrives at the first corner at speed instead of from a crawl.
+
+Baku was the case that showed the principle already working. It was the only circuit whose line was at
+the start of a straight rather than in a corner, and it was the only one where drivers made real
+progress. Its longest straight straddles the wrap point, so the middle of it is reached by rotating
+rather than by leaving the line alone.
+
+**Guarded** by two tests in `track.test.ts`: the line must be on a straight by the same curvature
+threshold `cornerCheckpoints` uses to define a corner, and there must be at least 150 m of run-up before
+the first corner — because a line one metre before a hairpin is on a straight and still useless.
+
+
+### 2026-10-10 — The checkpoint reward, and three more faults behind it
+
+Asked to fix the checkpoint rewards, on the observation that they "kill the driving training after the
+first lap, as they diminish too". The report was right about the symptom and the cause was worse than
+the symptom suggested. Four separate faults, each of which alone would have been enough to stall a run.
+
+**1. The checkpoint target did not carry its lap.** `car.distance` is the odometer and does not reset
+at the line, so lap two's checkpoint at 26 m lives at 3,547 m of odometer. The target was the bare
+position, so from lap two onwards every checkpoint read as already passed and the test was true on
+every tick. Measured: 12,683 passes over three laps of a 42-checkpoint circuit, and zero credit, because
+a whole lap's measurement was being taken inside a few metres just past the start line.
+
+The previous investigation had checked this arithmetic, including a lap offset term, and concluded the
+formula was correct. It was correct and it never ran: the offset was derived from a counter that was
+reset to zero two lines later, so `floor(next / count)` was permanently zero. This is the second time
+in this project that a fix was written, believed, and dead — so the guards are now tests against a
+reintroduced fault rather than a reading of the code.
+
+**2. One cut zeroed the entire lap.** Credit was skipped for the whole run if *any* checkpoint had been
+crossed off-circuit, so one wheel on the grass at one corner forfeited all 42. Measured on the leading
+driver: a single cut took its credit from 41 of 42 to exactly zero.
+
+**3. The objective never changed, and the elite was ranked on the saturated half of it.** The record
+ladder was `ladderFor(0)` — `{ lapReward: 0, checkpointReward: 500 }`, an objective on which a
+completed lap is worth nothing — and that same option set was reused to score every sample, so the
+annealing schedule described all over the code had never executed. The lap reward was worth exactly
+zero in every generation of every run.
+
+That explains the plateau precisely. The elite had already banked 40.99 of 42 checkpoints, so the
+number it was judged by had nothing left that better driving could improve. Runs went flat a few
+hundred generations in and no amount of training moved them, because the metric being watched was
+already at its ceiling and the search was optimising a constant.
+
+**4. The anneal horizon was set in generations while training runs in hours.** 2,500 generations is
+half an hour at a measured 1.4 generations per second. Recomputing it against real durations gives
+25,000: the corner reward stays worth having for about three hours and hands over to the lap inside a
+working day.
+
+**What the reward is now**, in answer to whether to lower it more slowly while raising the sector and
+lap rewards — yes to both, and the numbers were chosen from measurement:
+
+| term | before | after | why |
+|---|---|---|---|
+| lap | 5,000 (never applied) | 12,000 | the objective; more than the sectors combined |
+| sector | 500, annealed to 0 in 2,500 gen | 250, annealed to 0 in 25,000 gen | dense per-corner signal, kept alive for hours |
+| horizon | 2,500 generations | 25,000 generations | set from measured generations per second |
+
+Sector credit is now a MEAN over the corners met rather than a run-long high-water mark, so the same
+driving scores the same however long the run is, and every lap is measured on its own instead of the
+first good lap setting a record nothing can beat.
+
+**Verified.** Passes are exactly `laps x 42 + partial`. Credit sits at 0.83-0.86 on every lap where it
+used to be 0.00. Fitness now RISES with run length — 16,523 at 90 s, 19,081 at 120 s, 25,855 at 240 s —
+where before the reward actively paid a driver more for failing to complete a lap than for completing
+one, which was the incentive the run length had been quietly creating all along.
+
+A smoke run with the corrected reward is still improving at generation 3,233 with the elite at 0.85
+credit, where the previous code was flat within a few hundred generations.
+
+
 ### 2026-02-xx — Tire model, load transfer, and the lockup correction
 
 Built the tire model, the part of the sim that decides whether the racing is any

@@ -34,6 +34,7 @@
 import {
   runDriver,
   DEFAULT_LADDER,
+  REFERENCE_LADDER,
   type RewardLadder,
   type RunOptions,
   type RunResult,
@@ -265,7 +266,7 @@ export const createTrainer = (
      * built on rather than starting a new one, so a checkpoint remains comparable with the run that
      * produced it.
      */
-    recordLadder: ladderFor(0),
+    recordLadder: { ...REFERENCE_LADDER },
     mean,
     best: mean.slice(),
     /*
@@ -365,7 +366,7 @@ export const trainGeneration = async (
    * rather than by a wall clock — a run that is resumed continues its schedule.
    */
   /*
-   * THE ELITE IS SCORED AND RECORDED UNDER A FIXED OBJECTIVE.
+   * THE ELITE IS SCORED AND RECORDED UNDER A FIXED OBJECTIVE, AND THE SAMPLES ARE NOT.
    *
    * The ladder anneals, which is right for the SAMPLES: early on, credit for reaching corners is the
    * only signal available, and later it would be farmable. But if the record is kept on an annealed
@@ -373,22 +374,45 @@ export const trainGeneration = async (
    * generation 78's weights scored 1174 under generation 1759's, so the search spent sixteen hundred
    * generations unable to reproduce a score it had already beaten and could not tell.
    *
-   * The elite is therefore judged by a fixed yardstick for the whole run, chosen from the generation
-   * the trainer started at. That makes the recorded number comparable across a run of any length:
-   * if a new driver beats it, it is better, and the comparison means the same thing at generation ten
-   * and at generation ten thousand. The samples still anneal, because that shapes the search; the
-   * record does not, because it has to be a fact.
+   * So there are TWO option sets below and they must not be confused:
+   *
+   *  - `options` carries the annealed ladder. Every sample in every generation is scored with it.
+   *  - `recordOptions` carries `REFERENCE_LADDER`, the fixed racing objective, and is used only to
+   *    score and re-verify the elite.
+   *
+   * THEY WERE ONCE THE SAME OBJECT, and the consequence was that the anneal never ran at all: the
+   * record's generation-zero ladder was written into `options`, so the samples were scored on
+   * `{ lapReward: 0, checkpointReward: 500 }` for the entire run while the comments described a
+   * schedule that was not being applied. The lap reward was therefore worth exactly zero in every
+   * generation of every run, and the elite's recorded score — corner credit alone — had already
+   * saturated, which is why long runs showed a flat line and no amount of training moved it.
    */
-  const ladder = state.recordLadder;
   const options: RunOptions = {
     ...runOptions,
     // Corner checkpoints: entry, apex and exit for every corner. See `cornerCheckpoints`.
     cornerCheckpoints: runOptions.cornerCheckpoints ?? true,
-    lapReward: ladder.lapReward,
-    checkpointReward: ladder.checkpointReward,
+    ...ladderFor(state.generation),
+  };
+  const recordOptions: RunOptions = { ...options, ...state.recordLadder };
+
+  /**
+   * Records a parameter vector as the new elite.
+   *
+   * `verified` is passed when the caller has already measured the vector under `recordOptions`, which
+   * is the case for the search centre; a sample arrives with only its search-objective score and is
+   * measured here, so the recorded number always belongs to the recorded vector.
+   */
+  const promote = (genes: Float64Array, verified: RunResult | null): void => {
+    state.best.set(genes);
+    const measured = verified ?? score(genes, track, recordOptions);
+    state.bestFitness = measured.fitness;
+    // The objective it was measured against travels with the score; see `bestOptions`.
+    state.bestOptions = recordOptions;
+    state.bestResult = measured;
+    state.bestGeneration = step;
   };
 
-  const current = score(state.mean, track, options);
+  const current = score(state.mean, track, recordOptions);
 
   for (let i = 0; i < samples; i++) {
     const noise = perturbations[i]!;
@@ -503,33 +527,25 @@ export const trainGeneration = async (
   }
 
   state.generation = step;
-  if (current.fitness > state.bestFitness) {
-    state.best.set(scoredMean);
-    const verified = score(state.best, track, { ...options, ...state.recordLadder });
-    state.bestFitness = verified.fitness;
-    // The objective it was measured against travels with the score; see `bestOptions`.
-    state.bestOptions = { ...options, ...state.recordLadder };
-    state.bestResult = verified;
-    state.bestGeneration = step;
-  }
   /*
-   * A sample can also beat the centre, and it would be wasteful to discard it: it is a
-   * genuinely better set of parameters that has already been paid for. The best sample is
-   * therefore promoted if it wins.
+   * PROMOTION IS DECIDED UNDER THE RECORD OBJECTIVE, NOT THE SEARCH ONE.
+   *
+   * `scores` are annealed-objective values and `bestFitness` is a record-objective value, so comparing
+   * them directly is a comparison of two different quantities. That was survivable while the record
+   * objective was constant, because the annealed one moved and the ordering rarely coincided; now that
+   * the training objective genuinely anneals, the two scales drift apart by design and the comparison
+   * has to be made like for like.
+   *
+   * `current` was already scored under the record objective, so the centre candidate needs no further
+   * measurement, and a sample only pays for one when it has actually beaten the centre under the
+   * search objective — the same confirmation the record has always required, so the recorded number
+   * belongs to the recorded vector.
    */
+  if (current.fitness > state.bestFitness) promote(scoredMean, current);
+
   let bestIndex = 0;
   for (let i = 1; i < scores.length; i++) if (scores[i]! > scores[bestIndex]!) bestIndex = i;
-  if (scores[bestIndex]! > state.bestFitness) {
-    state.best.set(variants[bestIndex]!);
-    // Confirm with an isolated evaluation, so the recorded number always belongs to the
-    // recorded vector.
-    const verified = score(state.best, track, { ...options, ...state.recordLadder });
-    state.bestFitness = verified.fitness;
-    // The objective it was measured against travels with the score; see `bestOptions`.
-    state.bestOptions = { ...options, ...state.recordLadder };
-    state.bestResult = verified;
-    state.bestGeneration = step;
-  }
+  if (scores[bestIndex]! > current.fitness) promote(variants[bestIndex]!, null);
 
   /*
    * THE ELITE RESET IS GONE, and getting rid of it is the fix rather than a simplification.

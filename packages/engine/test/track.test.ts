@@ -380,3 +380,64 @@ test("track: no checkpoint is placed on the start line", () => {
     }
   }
 });
+
+test("track: every circuit starts on a straight, not in a corner", () => {
+  /*
+   * THE START LINE IS PART OF THE CIRCUIT, NOT A DISPLAY CHOICE.
+   *
+   * Cars are placed on the line at rest, so a line drawn in a corner means every run begins with a
+   * standing start into that corner — the car cannot carry speed into it, cannot turn while barely
+   * moving, and the corner it cannot yet drive stands between it and the rest of the lap.
+   *
+   * Measured before this was fixed: the club circuit's line sat at curvature 0.0382, a TWENTY-SIX METRE
+   * RADIUS HAIRPIN, and its drivers never completed a lap. Every checkpoint was measured from a
+   * standing start into a hairpin and the lap reward — the objective the whole ladder anneals towards —
+   * was never once paid. Moved to the middle of the longest straight, the same driver completes a lap
+   * in ninety seconds and averages nearly two metres per second more.
+   *
+   * The threshold is the one `cornerCheckpoints` uses to decide what counts as a corner, so "on a
+   * straight" means the same thing here as it does to the reward.
+   */
+  const CORNER_THRESHOLD = 0.004;
+  for (const { key, name } of CIRCUITS) {
+    const track = buildCircuitByKey(key)!;
+    const samples = track.curvature.length;
+    const spacing = track.length / samples;
+    const span = Math.max(1, Math.round(30 / spacing));
+
+    let peak = 0;
+    for (let k = -span; k <= span; k++) {
+      const at = ((k % samples) + samples) % samples;
+      const curvature = Math.abs(track.curvature[at]!);
+      if (curvature > peak) peak = curvature;
+    }
+    assert.ok(
+      peak < CORNER_THRESHOLD,
+      `${name} starts inside a corner: curvature ${peak.toFixed(4)} within 30 m of the line, ` +
+        `which is a ${(1 / peak).toFixed(0)} m radius. Cars are released from rest here.`,
+    );
+  }
+});
+
+test("track: the start line has run-up before the first corner", () => {
+  /*
+   * Being on a straight is necessary and not sufficient: a line one metre before a hairpin is on a
+   * straight and still useless. The car needs enough road to gather speed before anything is asked of
+   * it, which is the whole reason a real circuit draws its line at the middle of the longest straight
+   * rather than at the end of it.
+   *
+   * 150 m is about two seconds of acceleration from rest for this car — enough that the first corner
+   * is met at speed rather than from a crawl.
+   */
+  const MINIMUM_RUN_UP = 150;
+  for (const { key, name } of CIRCUITS) {
+    const track = buildCircuitByKey(key)!;
+    const first = cornerCheckpoints(track)[0];
+    assert.ok(first !== undefined, `${name} has no corner checkpoints at all`);
+    assert.ok(
+      first > MINIMUM_RUN_UP,
+      `${name} puts its first corner ${first.toFixed(0)} m from the line, so a car released from ` +
+        `rest has only that far to gather speed`,
+    );
+  }
+});

@@ -1,43 +1,81 @@
 # Known issues
 
-## Checkpoints stop measuring after the first lap — OPEN, and it invalidates every long run
+## Checkpoints stopped measuring after the first lap — FIXED, and there were four faults
 
-**Found:** asking whether the drivers can sense the checkpoints. They cannot — the observation has no
-checkpoint input at all — so the only thing steering them towards one is the reward. Measured, they are
-not being rewarded at all past the first lap.
+Found by asking whether the drivers can sense the checkpoints. They cannot — the observation has no
+checkpoint input — so the reward is the only thing steering them towards one, and it was not working.
 
-    duration   laps   checkpointsPassed   credit earned   best speed fraction
-      60 s       0            26            21.7 / 42           3.74
-      90 s       0           208             0.0               0.00
-     120 s       1          1577             0.0               0.00
-     180 s       1          5443             0.0               0.00
-     360 s       3         16425             0.0               0.00
+    duration   laps   passes (before)   passes (after)   credit (before)   credit (after)
+      90 s       0          208               43            0.00              0.86
+     120 s       1         1,577              55            0.00              0.83
+     180 s       2         5,443              85            0.00              0.86
+     300 s       3        12,683             143            0.00              0.83
 
-**The pass count grows without bound and the credit collapses to zero.** Credit is skipped for any
-checkpoint crossed while off the circuit (`checkpointOnTrack`), so a runaway index marking thousands of
-crossings means nearly every checkpoint ends up flagged, and the reward stops distinguishing anything.
+Passes are now exactly `laps x 42 + partial`, and credit is measured on every lap.
 
-**Where it is.** `nextCheckpoint` advances by one each time `car.distance >= target`, and the target is
-`positions[nextCheckpoint % count] + floor(nextCheckpoint / count) * track.length`. That arithmetic was
-CHECKED INDEPENDENTLY, replayed against a real distance trace, and gives the correct 85 passes over
-180 seconds — so the formula is right and the fault is in how the loop advances the index. Once
-`nextCheckpoint` runs far past the checkpoint count, the lap offset grows faster than the car travels and
-the sequence of crossings becomes meaningless.
+**Fault 1 — the checkpoint target did not carry its lap.** `car.distance` is the car's odometer and
+increases across laps instead of resetting at the line, so lap two's checkpoint at 26 m sits at
+3,547 m of odometer. The comparison used the bare position, so from the second lap on every checkpoint
+read as already passed and the test held on EVERY tick. The whole lap's measurement collapsed into a
+few metres just past the start line.
 
-**Not yet found:** why the index advances more than once per checkpoint. The per-tick distance
-accumulation was verified correct by hand — 2,672 m in 80 seconds, matching the track — so the fault is
-in the comparison, not the distance.
+This is worth recording because the previous investigation had verified the target arithmetic
+*including* the lap offset and concluded the formula was right. It was — but the offset was computed
+from a counter that was being reset to zero at the end of every lap two lines later, so
+`floor(next / count)` was permanently zero. The written fix never executed. Replacing it with a
+separate lap counter that is folded into the target is what made it work, and the first attempt at
+this repair reintroduced the fault by "simplifying away" what looked like dead code.
 
-**Why this is the most important open item.** The checkpoint ladder is the main signal that teaches
-cornering. If it stops measuring after one lap, then EVERY LONG RUN SO FAR HAS BEEN TRAINED ON A BROKEN
-REWARD FROM LAP TWO ONWARDS, and the plateaus that kept appearing — the elite stuck from generation 448
-onwards, the earlier one stuck from generation 5,216 — have a common and now plausible explanation.
+**Fault 2 — one cut zeroed the entire lap.** Credit was skipped for the whole run if ANY checkpoint
+was flagged as crossed off-circuit, so a single wheel on the grass at one corner forfeited all 42.
+Measured on the project's leading driver: one cut took its credit from 41 of 42 to exactly ZERO.
+Missed checkpoints are now forfeit individually.
 
-The observation window is 90 seconds by default, which is why this went unnoticed: at that length the
-run only just reaches the second lap, where the damage begins.
+**Fault 3 — the objective never changed, and the elite was ranked on the part that had saturated.**
+`recordLadder` was set to `ladderFor(0)`, which is `{ lapReward: 0, checkpointReward: 500 }` — an
+objective on which a completed lap is worth nothing. Worse, that same option set was reused to score
+every SAMPLE, so the annealing schedule described throughout the code never ran: the lap reward was
+worth exactly zero in every generation of every run.
+
+The consequence was measurable and matched the symptom exactly. The elite had already banked 40.99 of
+42 checkpoints, so the recorded score had nothing left that a better lap could improve; runs showed a
+flat line from a few hundred generations in, and no amount of training moved it. Measured now:
+
+    before:  elite 41.00 / 42 checkpoints, lap reward 0,    fitness flat for hundreds of generations
+    after:   elite  0.85      per lap,     lap reward paid, search still improving at generation 3,233
+
+The elite is now recorded against a fixed racing objective (`REFERENCE_LADDER`, a separate constant
+so the anneal can be retuned without invalidating recorded scores), and the samples anneal as the
+comments always claimed.
+
+**Fault 4 — the anneal horizon was measured in generations while training runs in hours.** The
+schedule was 2,500 generations, which at a measured 1.4 generations per second is half an hour; the
+first correction tried here, 6,000, was spent inside the first hour. Either way a run left going
+overnight spent nearly all of it with the corner signal at zero. Recomputed against real durations and
+set to 25,000, which keeps the corner reward worth having for about three hours and hands over to the
+lap well inside a working day.
+
+**Guarded by** `packages/engine/test/sectors.test.ts` and the ladder tests in `evolve.test.ts`. The
+sector tests were checked against both faults by reintroducing each one and confirming they fail.
 
 ---
 
+## The start line sat inside a hairpin — FIXED
+
+Cars are placed on the line at rest, so a line drawn in a corner means every run begins with a standing
+start into that corner. Measured, the club circuit's line was at curvature 0.0382 — a **26 m radius
+hairpin** — and its drivers never completed a lap. Every checkpoint was measured from a standing start
+into a hairpin, and the lap reward, the objective the whole ladder anneals towards, was never paid.
+
+Baku was the only circuit whose line was already at the start of a straight rather than in a corner, and
+it was the only one where drivers made real progress, which is what identified this.
+
+Fixed by rotating where distance zero falls on the ring, which moves the line without moving any tarmac.
+Each line is now at the middle of the longest straight; club went from zero laps in ninety seconds to
+one, at 40.93 m/s over three minutes instead of 39.36. Guarded by two tests in `track.test.ts`: the line
+must be on a straight, and there must be run-up before the first corner.
+
+---
 
 ## The viewer and the trainer drive the same driver differently
 
@@ -167,6 +205,13 @@ whether the issue is in the wheel rotational integration. The next step is to re
 known state rather than from a trained driver — a car at zero speed with the brake held should stay
 stopped, and a car at zero speed with no brake should not.
 
+**A related symptom, measured since, and it is NOT this fault.** On the Chicane circuit a club-trained
+driver covers 0.2 m in forty seconds with the throttle at exactly 0.00 every single step: it never asks
+to move. The car is capable — a fixed full-throttle-straight policy covers 558 m there in twenty
+seconds — so this is a policy that has never learned to apply throttle from rest on an unfamiliar
+circuit, not a car that cannot launch. Worth separating, because the two look identical in a distance
+column and have nothing in common underneath.
+
 **Where to look:** `packages/engine/src/car.ts` around the wheel torque integration and
 `packages/engine/src/tire.ts` for the slip ratio at low speed. `MIN_REFERENCE_SPEED` exists to keep the
 slip ratio well defined near zero and is the most likely place for a sign or magnitude error.
@@ -175,7 +220,7 @@ slip ratio well defined near zero and is the most likely place for a sign or mag
 
 ## Every long training run has stalled, and each time for a different reason
 
-Four separate causes have been found and fixed, and it is worth listing them together because they
+Seven separate causes have now been found and fixed, and it is worth listing them together because they
 presented identically — a training curve that rose and then flattened:
 
 1. **Rank normalisation with ties.** Nearly every sample scored zero early in training, and ranking
@@ -189,10 +234,23 @@ presented identically — a training curve that rose and then flattened:
 4. **A record scored under a moving objective.** The ladder anneals, so an elite recorded at 9,615 was
    worth 1,174 under the objective in force sixteen hundred generations later. The search could not
    reproduce a score it had already beaten.
+5. **The anneal never ran, and the record measured only the half of the objective that saturates.**
+   The record's generation-zero ladder was written into the option set used to score every sample, so
+   the lap reward was worth zero in every generation of every run while the comments described a
+   schedule that was not being applied. Meanwhile the elite had already banked 40.99 of 42 checkpoints,
+   so the number it was judged by had nothing left that better driving could improve. See the checkpoint
+   entry above.
+6. **The anneal horizon was set in generations while training runs in hours.** 2,500 generations is
+   half an hour at a measured 1.4 generations per second, so a run left going overnight spent nearly all
+   of it with the corner signal at zero. Now 25,000, chosen from a table of real durations.
+7. **The start line sat inside a hairpin.** Cars are released from rest on the line, so this put a 26 m
+   radius corner between the car and the entire rest of the lap on every single run, and the lap reward
+   was never paid at all. See the start line entry above.
 
 Each was invisible in the fitness column and obvious in a different one — ties in the sample spread,
 the reset in the centre-to-elite distance, the farmed reward in the on-track fraction, the moving
-record in a re-measurement.
+record in a re-measurement, the dead anneal in the fact that the lap reward term was zero, the horizon
+in the wall-clock duration of a run, and the hairpin in the curvature at distance zero.
 
 **The lesson worth keeping:** when a training curve flattens, the fitness number is the least
-informative column in the log.
+informative column in the log. Not one of these seven was found by looking at it.

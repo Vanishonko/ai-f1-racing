@@ -44,6 +44,8 @@ import { CHICANE as CHICANE_RING } from "./chicane.ts";
  */
 const CHICANE_SPEC: TrackControlPoints = {
   halfWidth: 9,
+  /* Middle of the 965 m straight from 4151 m to 5115 m. See `startDistance` on `TrackControlPoints`. */
+  startDistance: 4633,
   points: CHICANE_RING.map(([x, y]) => [x, y] as [number, number]),
 };
 
@@ -72,6 +74,16 @@ const CHICANE_SPEC: TrackControlPoints = {
  */
 const CLUB_SPEC: TrackControlPoints = {
   halfWidth: 8.5,
+  /*
+   * Middle of the 603 m straight that runs from 2748 m to 3350 m.
+   *
+   * The line used to sit at distance zero, which on this circuit is curvature 0.0382 — a 26 m radius
+   * hairpin. Cars are released from rest there, so every run began with a standing start into a
+   * hairpin, and the corner they could not yet drive stood between them and the whole rest of the lap.
+   * Measured, they never completed one, which meant the lap reward — the objective the ladder anneals
+   * towards — was never paid at all.
+   */
+  startDistance: 3049,
   points: [
     [-240, -170], [60, -170], [220, -160], [310, -120], [330, -50],
     [300, 10], [240, 35], [180, 20], [140, -30], [100, -85],
@@ -89,12 +101,28 @@ const CLUB_SPEC: TrackControlPoints = {
 /** A real circuit, traced from the Wikimedia Commons diagram of Spa-Francorchamps. */
 const SPA_SPEC: TrackControlPoints = {
   halfWidth: 10,
+  /*
+   * Middle of the longest straight on the circuit, the 756 m run that ends at 66 m.
+   *
+   * Spa's line was already at the start of a straight rather than in a corner, so this is the smaller
+   * half of the fix: it buys the car half a straight of run-up before the first corner instead of
+   * meeting it from a standstill.
+   */
+  startDistance: 6701,
   points: SPA_FRANCORCHAMPS.map(([x, y]) => [x, y] as [number, number]),
 };
 
 /** A real street circuit, traced from a Wikimedia Commons course-layout diagram. */
 const BAKU_SPEC: TrackControlPoints = {
   halfWidth: 9,
+  /*
+   * Middle of the 1,173 m straight running from 5924 m round to 1090 m.
+   *
+   * Baku is the case that shows the principle already working: its line was at the start of its longest
+   * straight, which is why it was the one circuit where drivers made progress. The straight straddles
+   * the wrap point, so the middle of it is reached by rotating rather than by leaving it alone.
+   */
+  startDistance: 503,
   points: BAKU_CITY.map(([x, y]) => [x, y] as [number, number]),
 };
 

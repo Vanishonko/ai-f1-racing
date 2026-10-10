@@ -21,6 +21,25 @@ export interface TrackControlPoints {
   points: ReadonlyArray<readonly [number, number]>;
   /** Half-width of the drivable surface [m]. */
   halfWidth: number;
+  /**
+   * Where the lap begins, as a distance along the traced centreline [m].
+   *
+   * WHERE THE LINE IS DRAWN IS A PROPERTY OF THE CIRCUIT, and it is not cosmetic. Cars are placed on
+   * the line at rest, so if the line sits in a corner then every car begins its run mid-corner from a
+   * standstill — unable to carry speed, forced to turn while barely moving, and with the corner it
+   * cannot yet drive standing between it and the rest of the lap.
+   *
+   * Measured on the club circuit, whose line sat at curvature 0.0382: that is a TWENTY-SIX METRE
+   * RADIUS HAIRPIN, and it is the first thing the car meets and the last thing it must get through to
+   * complete a lap. Its drivers never completed one. Every checkpoint was measured from a standing
+   * start into a hairpin, and the lap reward — the objective the whole ladder anneals towards — was
+   * never once paid.
+   *
+   * The line belongs in the middle of the longest straight, which is where a real circuit puts it and
+   * for the same reason: it is the one place on the lap where a car can be released and gather speed
+   * before anything is asked of it.
+   */
+  startDistance?: number | undefined;
 }
 
 
@@ -254,7 +273,7 @@ export const buildTrack = (
 
   // Arc length is rebuilt from the emitted samples so that every circuit shares one
   // definition of distance along the track. See `rebuildArcLength`.
-  return rebuildArcLength({
+  const built = rebuildArcLength({
     xs,
     ys,
     s,
@@ -267,6 +286,9 @@ export const buildTrack = (
     name,
     key,
   });
+  // The start line is placed last: rotation redefines which sample is distance zero, so every
+  // distance computed above is already expressed relative to the new line.
+  return spec.startDistance === undefined ? built : rotateToStart(built, spec.startDistance);
 };
 
 /**
@@ -358,6 +380,48 @@ export const cornerCheckpoints = (
   found.sort((a, b) => a - b);
   const deduped = found.filter((value, index) => index === 0 || value - found[index - 1]! > 1);
   return deduped.filter((value) => value > 1);
+};
+
+/**
+ * Moves the start line, by rotating where index zero sits on the loop.
+ *
+ * THIS DOES NOT MOVE ANY TARMAC. A circuit is a ring, so choosing a different index to begin at
+ * changes only which point is distance zero — the geometry, the corners and the lap length are
+ * untouched. That matters because the layouts are content that three attempts to "tidy" have already
+ * made worse; this is the one edit to a circuit that cannot alter its shape.
+ *
+ * Everything downstream then agrees for free, because distance along the track is measured from index
+ * zero: the car's placement, the lap counter's wrap point and the checkpoint distances are all
+ * expressed relative to it.
+ */
+const rotateToStart = (track: Track, startDistance: number): Track => {
+  const count = track.xs.length;
+  if (count === 0) return track;
+
+  // The nearest sample to the requested distance, wrapped into range.
+  const shift = (((Math.round(startDistance / track.spacing) % count) + count) % count) | 0;
+  if (shift === 0) return track;
+
+  const roll = (source: Float64Array, target: Float64Array): void => {
+    for (let i = 0; i < count; i++) target[i] = source[(i + shift) % count]!;
+  };
+
+  const xs = new Float64Array(count);
+  const ys = new Float64Array(count);
+  const tx = new Float64Array(count);
+  const ty = new Float64Array(count);
+  const curvature = new Float64Array(count);
+  roll(track.xs, xs);
+  roll(track.ys, ys);
+  roll(track.tx, tx);
+  roll(track.ty, ty);
+  roll(track.curvature, curvature);
+
+  /*
+   * `s` is rebuilt rather than rotated, because it is cumulative from the start line and the start
+   * line has moved. Rotating it would leave every distance offset by the shift.
+   */
+  return rebuildArcLength({ ...track, xs, ys, tx, ty, curvature, s: track.s });
 };
 
 /**

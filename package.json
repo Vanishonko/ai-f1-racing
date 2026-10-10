@@ -15,7 +15,7 @@
     "drive": "node scripts/build-browser.ts && node packages/cli/src/serve.ts",
     "train": "node packages/cli/src/train.ts",
     "bench": "node packages/cli/src/bench.ts",
-    "bench": "node packages/engine/test/bench.ts",
+    "reward": "node scripts/reward-breakdown.ts",
     "lint:determinism": "node scripts/lint-determinism.ts"
   },
   "devDependencies": {

@@ -45,33 +45,9 @@ import {
 import { driveSmoothed, type Controls, type Driver } from "./driver.ts";
 import { createObservation, observe, type Observation } from "./sense.ts";
 import { gripNoiseAt } from "./rng.ts";
-import { sampleIndexAt, cornerCheckpoints } from "./track.ts";
-
-/**
- * A representative cornering limit, in metres per second squared.
- *
- * Used only to express a checkpoint reward as a FRACTION of what the car could have carried there, so
- * that a hairpin and a fast sweeper are worth the same for the same quality of driving. It is a
- * normalising constant rather than a physical model: the physics has the real one.
- */
-const DEFAULT_GRIP_LIMIT = 14;
-
-/** Evenly spaced checkpoints, for comparing against the corner-placed ones. */
-const evenCheckpoints = (length: number, count: number): number[] => {
-  const positions: number[] = [];
-  for (let i = 0; i < count; i++) positions.push((length * i) / count);
-  return positions;
-};
-
-/** Grip-limited speed for a curvature, capped so a straight does not produce an infinite limit. */
-const gripLimitedSpeed = (curvature: number, gripLimit: number): number => {
-  const k = Math.abs(curvature);
-  // A straight has no cornering limit, so the cap is the car's own terminal speed.
-  if (k < 1e-6) return 85;
-  return Math.min(85, Math.sqrt(gripLimit / k));
-};
 import { MAX_STEER_ANGLE } from "./steerLut.ts";
 import { pointAtDistance, type Track } from "./track.ts";
+import { SectorTracker } from "./sectors.ts";
 
 /** Physics timestep. Fixed, because the whole evaluation depends on it. */
 export const DT = 1 / 60;
@@ -187,11 +163,11 @@ export interface RewardLadder {
  */
 export const DEFAULT_LADDER: RewardLadder = {
   /** A completed lap, gated on staying on the circuit. The objective. */
-  lapReward: 5000,
-  /** Passing a corner well, scaled by the speed carried. Worth a tenth of a lap. */
-  checkpointReward: 500,
+  lapReward: 12000,
+  /** Passing a corner well, scaled by the speed carried. Roughly a forty-second of a lap. */
+  checkpointReward: 250,
   /**
-   * Generations over which checkpoint credit fades and lap credit grows.
+   * Generations over which sector credit fades and lap credit grows.
    *
    * THE ANNEAL MUST OUTLAST THE LEARNING, and an earlier setting of a hundred and fifty did not. By
    * that generation a randomly-initialised population still cannot complete a lap — measured, a
@@ -202,8 +178,48 @@ export const DEFAULT_LADDER: RewardLadder = {
    *
    * Checkpoints fading is right, because they are farmable. Checkpoints fading BEFORE anything can
    * complete a lap is a schedule that guarantees the search has nothing to climb.
+   *
+   * THE HORIZON IS SET IN THE UNITS TRAINING ACTUALLY RUNS IN. At a measured 1.4 generations per
+   * second with eight workers, the earlier 2,500 annealed away in half an hour and the 6,000 first
+   * tried here was spent by the end of the first hour — so a run left going overnight spent almost all
+   * of its time with the corner signal at zero and the elite's record saturating. This is the value
+   * that was wanted, computed rather than guessed:
+   *
+   *     anneal   corner signal remaining after 0.5 h   1 h   2 h   4 h   8 h
+   *      6,000                               62%         7%     0%     0%     0%
+   *     12,000                               89%        62%     7%     0%     0%
+   *     25,000                               97%        89%    64%    10%     0%
+   *     40,000                               99%        96%    84%    49%    15%
+   *
+   * 25,000 keeps the corner reward worth having for roughly three hours and hands the objective over
+   * to the lap well inside a working day. 40,000 was rejected for the opposite failure to the original:
+   * the lap reward reaches full weight so late that a run which has already learned to lap is still
+   * being paid mostly for corners, which is the farmable regime.
    */
-  annealGenerations: 2500,
+  annealGenerations: 25000,
+};
+
+/**
+ * The yardstick a driver's RECORD is kept against, fixed for the life of the project.
+ *
+ * This is the full racing objective with both terms at their settled weights, and it is deliberately
+ * NOT a snapshot of the annealing schedule. That distinction was got wrong once and cost a great deal:
+ * the record was taken under `ladderFor(0)`, which is `{ lapReward: 0, checkpointReward: 500 }` — the
+ * generation-zero objective, under which a lap is worth nothing at all. The elite was therefore ranked
+ * purely on corner credit, which saturates, so a driver that improved its lap times could not move the
+ * number it was being judged by.
+ *
+ * Keeping it separate from `DEFAULT_LADDER` means the annealing schedule can be retuned without
+ * invalidating every recorded score, which is a comparison the whole project depends on.
+ */
+export const REFERENCE_LADDER: RewardLadder = {
+  lapReward: 12000,
+  checkpointReward: 250,
+  /*
+   * Unused by the reference, and present only because it shares `RewardLadder`'s type. A yardstick
+   * that annealed would not be a yardstick.
+   */
+  annealGenerations: 25000,
 };
 
 export interface RunOptions {
@@ -264,19 +280,27 @@ export interface RunResult {
   averageSpeed: number;
   /** Fastest speed reached anywhere in the run [m/s]. */
   topSpeed: number;
-  /** Checkpoints passed in the correct order. */
+  /** Checkpoints passed in the correct order. Should be about `checkpointCount` per lap. */
   checkpointsPassed: number;
   /** The ungated distance reward, reported separately so it can be seen not to dominate. */
   distanceReward: number;
+  /** What the lap term actually paid, so the ladder can be seen working. */
+  lapReward: number;
+  /** What the sector term actually paid, for the same reason. */
+  checkpointReward: number;
   /**
-   * Checkpoint credit earned, as a sum of fractions of each checkpoint's grip-limited speed.
+   * Mean sector credit, in [0, 1]: how well the corners met were driven.
    *
-   * The number that actually drives cornering behaviour: a value near the checkpoint count means the
-   * car carried near its maximum possible speed through every one of them.
+   * The number behind cornering behaviour. Near 1 means the car carried close to the grip-limited
+   * speed through nearly every checkpoint it reached.
    */
   checkpointCredit: number;
-  /** Fastest speed carried through any checkpoint, as a fraction of its limit. */
+  /** Fastest speed carried through any checkpoint on the final lap, as a fraction of its limit. */
   checkpointBestFraction: number;
+  /** Fastest speed carried through any checkpoint in the whole run, as a fraction of its limit. */
+  checkpointPeakFraction: number;
+  /** Mean sector credit over completed laps only, so a partial final lap does not dilute it. */
+  meanLapCredit: number;
   /** How many corner checkpoints this circuit has. */
   checkpointCount: number;
   /**
@@ -493,43 +517,26 @@ export const runPolicy = (
   let previousSteer = 0;
   let topSpeed = 0;
   /*
-   * Checkpoint progress. `nextCheckpoint` is the index of the one being aimed at, so passing them in
-   * the wrong order or crossing one repeatedly earns nothing — the count only advances when the
-   * correct next one is reached.
-   */
-  let checkpointsPassed = 0;
-  let nextCheckpoint = 0;
-  /*
-   * Checkpoint POSITIONS, not a count and an even division. See `cornerCheckpoints`: a lap is won in
-   * the corners, so that is where the reward is measured.
-   */
-  const checkpointPositions = options.cornerCheckpoints
-    ? cornerCheckpoints(track)
-    : options.checkpointCount
-      ? evenCheckpoints(track.length, options.checkpointCount)
-      : [];
-  const checkpointCount = checkpointPositions.length;
-  const checkpointAt = (index: number): number => checkpointPositions[index] ?? 0;
-  /*
-   * SPEED CARRIED THROUGH EACH CHECKPOINT, which is what makes a corner checkpoint worth having.
+   * SECTOR AND LAP TIMING.
    *
-   * Rewarding mere passage through a corner is farmable the obvious way: CUT IT. The shortest path
-   * through a corner is the one that clips the inside, so a passage reward paid at an apex pays most
-   * for the least driving. That is the same failure as the driver that learned to leave the circuit
-   * because distance kept accruing across the infield.
+   * A lap is won in the corners, so that is where the reward is measured: `cornerCheckpoints` places
+   * a checkpoint at the entry, apex and exit of every corner. Rewarding mere passage through one is
+   * farmable the obvious way — CUT IT, because the shortest path through a corner clips the inside —
+   * so what is paid for is the SPEED CARRIED, as a fraction of the grip-limited speed for the
+   * curvature there, and only when the car was on the circuit as it crossed. Cutting puts the car on
+   * the grass and forfeits that sector; taking it slowly forfeits most of it.
    *
-   * So the reward is scaled by the speed actually carried, and by whether the car was ON THE CIRCUIT
-   * at the moment it passed. Cutting the corner puts the car on the grass at the apex, which forfeits
-   * it; taking the corner slowly forfeits most of it. What is left is worth having only by driving the
-   * corner properly and quickly — which is the behaviour that was wanted in the first place, obtained
-   * by measurement rather than by a rule.
+   * The per-lap bookkeeping lives in `SectorTracker`, which is where the two ways this measurement
+   * silently stops measuring are documented and guarded.
    */
-  const checkpointBestSpeed = checkpointCount > 0 ? new Float64Array(checkpointCount) : null;
-  const checkpointOnTrack = checkpointCount > 0 ? new Uint8Array(checkpointCount) : null;
+  const sectors = new SectorTracker(track, {
+    cornerCheckpoints: options.cornerCheckpoints,
+    checkpointCount: options.checkpointCount,
+    gripLimit: options.gripLimit,
+  });
+  const checkpointCount = sectors.count;
   /** Set each step from the observation, so "on the circuit" has one definition. */
   let carOnTrack = true;
-  let checkpointCreditSum = 0;
-  let checkpointBestFraction = 0;
 
   /*
    * The car's lock and wheelspin timers are CUMULATIVE, so they are differenced rather
@@ -567,7 +574,7 @@ export const runPolicy = (
      * silently PUNISHING a driver through the lap reward; the underlying accumulation is still wrong
      * when a car reverses over the line and that is recorded here rather than papered over.
      */
-    laps = Math.max(0, Math.floor(progress / track.length));
+    const completedLaps = Math.max(0, Math.floor(progress / track.length));
 
     carOnTrack = observation.onTrack;
     if (carOnTrack) onTrackSteps++;
@@ -585,54 +592,24 @@ export const runPolicy = (
     const speedNow = Math.sqrt(car.vx * car.vx + car.vy * car.vy);
     if (speedNow > topSpeed) topSpeed = speedNow;
 
-    if (checkpointCount > 0 && checkpointBestSpeed && checkpointOnTrack) {
-      /*
-       * The speed is recorded as the car APPROACHES its next checkpoint, not only at the instant it
-       * crosses. A single sample taken on the line would be a lottery: one step of a corner tells you
-       * almost nothing, and the search would be optimising noise.
-       */
-      const index = nextCheckpoint % checkpointCount;
-      if (speedNow > checkpointBestSpeed[index]!) checkpointBestSpeed[index] = speedNow;
+    /*
+     * `car.distance` is the car's own odometer and is MONOTONIC — it accumulates across laps rather
+     * than resetting at the line — which is exactly what the sector machine needs, because its
+     * targets rise lap on lap. See `SectorTracker` for why wrapping the counter back to zero instead
+     * makes every checkpoint re-fire on every tick after the first lap.
+     */
+    sectors.update(car.distance, speedNow, carOnTrack);
 
-      /*
-       * THE TARGET CARRIES ITS LAP WITH IT, and forgetting that broke checkpoints entirely from the
-       * second lap onwards.
-       *
-       * `car.distance` is MONOTONIC — it accumulates across laps rather than resetting at the line — so
-       * it passes the last checkpoint's position on lap one and keeps going. The index wraps to zero, but
-       * the target was being read as `positions[0]`, which the car passed three and a half kilometres
-       * ago. The condition was therefore true on EVERY SUBSEQUENT TICK.
-       *
-       * Measured: a two-lap run recorded 5,640 checkpoints passed and earned ZERO credit, because the
-       * index was advancing thousands of times per lap and every sample it took was of the same few
-       * metres of track. Over four laps it recorded 16,239. The reward had stopped measuring anything.
-       *
-       * Adding the lap number back onto the position gives a target that keeps rising as the car goes
-       * round, so a checkpoint counts exactly once per lap as intended.
-       */
-      const lapOffset = Math.floor(nextCheckpoint / checkpointCount) * track.length;
-      const target = checkpointAt(nextCheckpoint) + lapOffset;
-      /*
-       * Requiring the CORRECT next one is what makes them directional: a car that reverses over a line
-       * it has already crossed does not get it again, and a car that cuts the infield to reach a later
-       * one does not skip the earlier ones.
-       */
-      if (car.distance >= target) {
-        checkpointsPassed++;
-        /*
-         * ON-TRACK IS JUDGED AT THE CROSSING, not throughout the approach.
-         *
-         * An earlier version flagged a checkpoint the moment the car was off the circuit anywhere
-         * before reaching it, which meant one early excursion forfeited every checkpoint still to
-         * come — a driver that ran wide once at the first corner scored nothing for the rest of the
-         * lap. What the reward is meant to express is whether the corner was driven or cut, and that
-         * is a property of the crossing.
-         */
-        if (!carOnTrack) checkpointOnTrack[index] = 1;
-        nextCheckpoint++;
-        if (nextCheckpoint >= checkpointCount) nextCheckpoint = 0;
-      }
-    }
+    /*
+     * Bank the lap's sectors as soon as the line is crossed, and start a fresh lap.
+     *
+     * Draining the bank happens ONLY here, so a lap's credit is paid once and the term keeps
+     * measuring lap after lap instead of saturating on the best lap of the run. Order matters: the
+     * lap is closed before the reward is read below, so the lap reward and the sector credit it is
+     * paid alongside describe the same driving.
+     */
+    if (completedLaps > laps) sectors.completeLap();
+    laps = completedLaps;
 
     controls.throttle = 0;
     controls.brake = 0;
@@ -722,31 +699,23 @@ export const runPolicy = (
     distance * w.distanceReward * (w.distanceUngatedShare + (1 - w.distanceUngatedShare) * onTrackFraction);
 
   /*
-   * Checkpoint credit is the speed actually carried, as a fraction of what the car could have
-   * carried there, and only for checkpoints passed while on the circuit.
+   * SECTOR CREDIT IS THE SPEED ACTUALLY CARRIED, as a fraction of what the car could have carried
+   * there, averaged over the corners it met.
    *
-   * `cornerSpeedLimit` is the grip-limited speed for the curvature at that point — the fastest a car
-   * with this much grip can physically go round it. Expressing the reward as a fraction OF that is
-   * what makes it comparable between a hairpin and a fast sweeper, rather than paying most for the
+   * The grip-limited speed for the curvature at a checkpoint is the fastest a car with this much grip
+   * can physically go round it. Expressing the reward as a fraction OF that is what makes a hairpin and
+   * a fast sweeper worth the same for the same quality of driving, rather than paying most for the
    * corner that happens to be taken fastest.
+   *
+   * Paid on the AVERAGE rather than the sum, and this changed when the per-lap reset was added. While
+   * the credit was a run-long high-water mark the natural quantity was "how many checkpoints have you
+   * ever cleared", which saturates. Now that every lap is measured, the meaningful question is "how
+   * well are you driving the corners", which is a mean and stays comparable however many laps the run
+   * contains. The sum would pay a long run more for the same driving, which is a run-length artefact
+   * rather than a fact about the driver.
    */
-  let checkpointCredit = 0;
-  if (checkpointCount > 0 && checkpointBestSpeed && checkpointOnTrack) {
-    for (let i = 0; i < checkpointCount; i++) {
-      if (checkpointBestSpeed[i]! <= 0) continue;
-      // A checkpoint missed while off the circuit earns nothing; see the note where it is recorded.
-      if (checkpointOnTrack[i] === 1) continue;
-      const at = checkpointAt(i);
-      const sample = sampleIndexAt(track, at);
-      const curvature = Math.abs(track.curvature[sample] ?? 0);
-      const limit = gripLimitedSpeed(curvature, options.gripLimit ?? DEFAULT_GRIP_LIMIT);
-      const achieved = limit > 0 ? checkpointBestSpeed[i]! / limit : 0;
-      checkpointCredit += achieved > 1 ? 1 : achieved;
-      if (achieved > checkpointBestFraction) checkpointBestFraction = achieved;
-    }
-    checkpointCreditSum = checkpointCredit;
-  }
-  const checkpointReward = (options.checkpointReward ?? 0) * checkpointCredit;
+  const sectorCredit = sectors.credit;
+  const checkpointReward = (options.checkpointReward ?? 0) * checkpointCount * sectorCredit;
   const fitness =
     distanceTerm +
     lapReward +
@@ -768,10 +737,14 @@ export const runPolicy = (
     fitness,
     averageSpeed,
     topSpeed,
-    checkpointsPassed,
+    checkpointsPassed: sectors.checkpointsPassed,
     distanceReward: distanceTerm,
-    checkpointCredit: checkpointCreditSum,
-    checkpointBestFraction: checkpointBestFraction,
+    lapReward,
+    checkpointReward,
+    checkpointCredit: sectorCredit,
+    checkpointBestFraction: sectors.bestFraction,
+    checkpointPeakFraction: sectors.peakFraction,
+    meanLapCredit: sectors.meanLapCredit,
     checkpointCount,
     steeringWork: steeringWorkPerMetre,
   };

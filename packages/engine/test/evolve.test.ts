@@ -6,9 +6,10 @@ import {
   trainGeneration,
   bestDriver,
   meanDriver,
+  ladderFor,
   PARAMETER_COUNT_CHECK,
 } from "../src/evolve.ts";
-import { runDriver } from "../src/environment.ts";
+import { runDriver, DEFAULT_LADDER, REFERENCE_LADDER } from "../src/environment.ts";
 
 /*
  * Runs are kept to two simulated seconds.
@@ -183,5 +184,117 @@ test("evolve: a trainer can resume from existing parameters", async () => {
     () => createTrainer(1, {}, new Float64Array(10)),
     /resuming needs/,
     "a parameter count mismatch must be rejected",
+  );
+});
+
+test("ladder: the anneal moves weight from sectors to the lap, and never kills both", () => {
+  /*
+   * The schedule is what carries the search from "get somewhere at all" to "get round quickly", so its
+   * two ends are a contract rather than a preference:
+   *
+   *  - At generation zero a lap is worth NOTHING, because nobody can complete one yet. Paying for laps
+   *    there is paying for something unreachable, and the measured consequence was a search with no
+   *    signal at all.
+   *  - Once the anneal is done the lap is worth everything, because by then sector credit is farmable
+   *    and a lap is the objective.
+   *  - At every generation in between, AT LEAST ONE of the two is worth something. This is the part
+   *    worth testing: an earlier schedule annealed so fast that both terms had faded before a
+   *    randomly-initialised population could complete a lap, leaving the search with nothing to climb
+   *    and the run apparently frozen.
+   */
+  const start = ladderFor(0);
+  assert.equal(start.lapReward, 0, "a lap must be worth nothing at generation zero");
+  assert.ok(start.checkpointReward > 0, "and corners must be worth something");
+
+  const end = ladderFor(DEFAULT_LADDER.annealGenerations);
+  assert.equal(end.checkpointReward, 0, "sector credit must anneal away entirely");
+  assert.ok(end.lapReward > 0, "and the lap must carry the objective by the end");
+
+  let previousLap = -1;
+  let previousSector = Infinity;
+  for (let generation = 0; generation <= DEFAULT_LADDER.annealGenerations; generation += 250) {
+    const { lapReward, checkpointReward } = ladderFor(generation);
+    assert.ok(
+      lapReward > 0 || checkpointReward > 0,
+      `generation ${generation} left the search with no reward at all`,
+    );
+    assert.ok(lapReward >= previousLap, `lap weight must never fall, fell at ${generation}`);
+    assert.ok(
+      checkpointReward <= previousSector,
+      `sector weight must never rise, rose at ${generation}`,
+    );
+    previousLap = lapReward;
+    previousSector = checkpointReward;
+  }
+});
+
+test("ladder: the anneal is slow enough to outlast learning to drive", () => {
+  /*
+   * Measured: a randomly-initialised population cannot complete a lap, and a scripted driver that
+   * steers properly manages about a third of one. A schedule that withdraws corner credit before the
+   * search can reach the lap therefore removes the only signal it has.
+   *
+   * THE UNITS MATTER HERE. Generations are not a duration, and the first two attempts at this number
+   * were wrong because they were reasoned about as if they were: at a measured 1.4 generations per
+   * second with eight workers, 2,500 annealed away in half an hour and 6,000 was spent inside the
+   * first hour. A run left going overnight therefore spent nearly all of its time with the corner
+   * signal at zero. The check is that a real training session still has one.
+   */
+  const GENERATIONS_PER_SECOND = 1.4;
+  const share = (hours: number): number =>
+    ladderFor(GENERATIONS_PER_SECOND * hours * 3600).checkpointReward /
+    DEFAULT_LADDER.checkpointReward;
+
+  assert.ok(
+    share(2) > 0.5,
+    `after two hours of training only ${(share(2) * 100).toFixed(0)}% of the corner signal is left`,
+  );
+  assert.equal(
+    share(8),
+    0,
+    "and it must be gone by the end of a long run, or the corner reward is left farmable",
+  );
+  /*
+   * The lap must meanwhile be worth something substantial well before the corner signal has gone, so
+   * there is never a generation in which neither term is meaningful.
+   */
+  const afterTwoHours = ladderFor(GENERATIONS_PER_SECOND * 2 * 3600);
+  const handover = afterTwoHours.lapReward / DEFAULT_LADDER.lapReward;
+  assert.ok(
+    handover > 0.2,
+    `after two hours the lap is only worth ${(handover * 100).toFixed(0)}% of its final weight, so ` +
+      `a driver that has learned to lap is still being paid mostly for corners`,
+  );
+});
+
+test("ladder: the elite's yardstick is not generation zero's schedule", () => {
+  /*
+   * The bug that made every long run look frozen. The elite's record was taken under `ladderFor(0)`,
+   * which is `{ lapReward: 0, checkpointReward: 500 }` — an objective on which a completed lap is
+   * worth NOTHING. So the recorded number measured corner credit alone, corner credit saturates as
+   * soon as a driver is quick through the corners, and a driver that improved its lap times could not
+   * move the score it was being judged by. Measured: the leading driver had banked 41 of 42
+   * checkpoints and its recorded score had been flat for hundreds of generations.
+   *
+   * The yardstick therefore has to be a RACING objective — both terms paid — and it has to be fixed
+   * for the life of the run. Checked here against the generation-zero schedule it used to be, which is
+   * the specific value that caused the fault.
+   */
+  const generationZero = ladderFor(0);
+  assert.equal(generationZero.lapReward, 0, "generation zero pays nothing for a lap, by design");
+
+  assert.ok(REFERENCE_LADDER.lapReward > 0, "so the elite's yardstick must not be generation zero");
+  assert.ok(
+    REFERENCE_LADDER.checkpointReward > 0,
+    "and it must still pay for corners, or it cannot rank drivers that complete no lap",
+  );
+
+  const trainer = createTrainer(7);
+  assert.equal(trainer.recordLadder.lapReward, REFERENCE_LADDER.lapReward);
+  assert.equal(trainer.recordLadder.checkpointReward, REFERENCE_LADDER.checkpointReward);
+  assert.notEqual(
+    trainer.recordLadder.lapReward,
+    generationZero.lapReward,
+    "a trainer must not record its elite against an objective that pays nothing for a lap",
   );
 });
