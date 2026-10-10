@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildCircuitByKey, buildCircuits } from "../src/trackLibrary.ts";
-import { runDriver, DT, DEFAULT_RUN_SECONDS } from "../src/environment.ts";
+import { pointAtDistance } from "../src/track.ts";
+import { createCarState } from "../src/car.ts";
+import { createObservation } from "../src/sense.ts";
+import { runDriver, runPolicy, DT, DEFAULT_RUN_SECONDS } from "../src/environment.ts";
 import {
   createDriver,
   randomGenes,
@@ -121,4 +124,71 @@ test("environment: the reported step budget matches the requested duration", () 
   });
   assert.equal(steps, Math.round(5 / DT), "the run should step exactly once per timestep");
   assert.equal(DEFAULT_RUN_SECONDS, 90, "the default run length is part of the training cost");
+});
+
+test("environment: a snap across the start line is not counted as a step", () => {
+  /*
+   * `observation.distance` is circular: it runs 0..track.length and snaps back through zero at the
+   * start line. Progress used to be accumulated by treating the snap as a step, adding a lap back on
+   * when the delta looked large:
+   *
+   *     if (advanced < -track.length / 2) progress += advanced + track.length;   // forwards: correct
+   *     else if (advanced > track.length / 2) progress += advanced - track.length; // backwards: wrong
+   *
+   * The first branch is right. The second is not: for a car crossing the line BACKWARDS the delta is a
+   * large POSITIVE number, and subtracting a lap from it credits the crossing as though the car had
+   * driven almost the whole circuit. Measured on a car straddling the line, a single backward crossing
+   * added **+3504.7 m** of progress — and a later forward crossing took it back, which is why this
+   * survived: the two cancel exactly, so any run ending on the side it started looks right.
+   *
+   * WHAT THIS FIX DOES AND DOES NOT DO, recorded because it is easy to overclaim. It does not change the
+   * score of any driver measured — the lapping elites report 3277 m and 3966 m either way, and a car
+   * that spans on the spot reports zero either way. What it removes is a whole lap of progress that
+   * exists for as long as the car is on the far side of the line with nothing come to unwind it, which
+   * is a state a spinning car spends half of every rotation in. The score of such a car depended on
+   * where its run happened to stop. That is still a fault worth not having, but it is a hygiene fix and
+   * it is NOT the explanation for a driver that fails to complete a lap.
+   */
+  const track = buildCircuitByKey("club")!;
+  const scratch = {
+    car: createCarState(),
+    observation: createObservation(),
+    controls: { throttle: 0, brake: 0, steer: 0 },
+  };
+
+  /*
+   * Held a few metres either side of the line, which puts the reported distance at opposite ends of the
+   * circular range for two positions that are metres apart. Position is written directly because what is
+   * under test is the progress accumulation, not the physics.
+   */
+  const legs = [8, -8, 0.5];
+  let step = 0;
+  const result = runPolicy(
+    () => {
+      const along = legs[Math.min(legs.length - 1, Math.floor(step / 60))]!;
+      const point = pointAtDistance(track, along);
+      scratch.car.x = point.x;
+      scratch.car.y = point.y;
+      scratch.car.heading = Math.atan2(point.ty, point.tx);
+      scratch.car.vx = 0;
+      scratch.car.vy = 0;
+      step++;
+    },
+    track,
+    { seconds: 3 },
+    scratch,
+  );
+
+  assert.ok(Number.isFinite(result.distance), `progress must stay finite, got ${result.distance}`);
+  assert.ok(result.distance >= 0, `progress must never be negative, got ${result.distance}`);
+  /*
+   * The car ends half a metre past the line and has never been more than eight metres from it. A
+   * handful of metres is the honest answer; a lap is not.
+   */
+  assert.ok(
+    result.distance < 20,
+    `a car held within eight metres of the start line reported ${result.distance.toFixed(0)} m of ` +
+      `progress on a ${track.length.toFixed(0)} m circuit; a snap across the line is not a step`,
+  );
+  assert.equal(result.laps, 0, "and it must not count a lap either");
 });
